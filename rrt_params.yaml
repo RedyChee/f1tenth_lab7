@@ -1,8 +1,9 @@
 # Topics that RRT listens to
 # TODO: add your own
 # TODO: change this to the pose topic published particle filter
-pose_topic: "some_pose_topic"
-scan_topic: "some_scan_topic"
+pose_topic: /pose
+scan_topic: /scan
+nav_topic: /nav
 
 # Topics that RRT publishes to
 # TODO: add your own

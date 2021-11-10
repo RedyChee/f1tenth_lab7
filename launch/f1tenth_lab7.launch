@@ -2,9 +2,9 @@
 <launch>
   <include file="$(find f1tenth_simulator)/launch/simulator.launch"/>
   
-  <node name="f1tenth_lab7" pkg="f1tenth_lab7" type="rrt.py">
+  <node pkg="f1tenth_lab7" name="rrt" type="rrt.py">
   
-		<rosparam command="load" file="$(find f1tenth_lab7)/rrt_params.yaml"/>
+		<rosparam file="$(find f1tenth_lab7)/rrt_params.yaml" command="load"/>
 	
 	</node>
 
