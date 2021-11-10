@@ -8,6 +8,22 @@
 
 #include "f1tenth_lab7/rrt.h"
 
+// convert global frame to grid frame
+// grid size: 0.05m * 0.05m
+std::vector<unsigned int> convert_frame(double x_global, double y_global, double x_off = 14.50, double y_off = 0.70) {
+    double x_grid = x_global + x_off;
+    double y_grid = y_global + y_off;
+    unsigned int x_grid_int = (unsigned int)std::round(x_grid / 0.05);
+    unsigned int y_grid_int = (unsigned int)std::round(y_grid / 0.05);
+    if (x_grid_int > 100000) {
+        x_grid_int = 0;
+    }
+    if (y_grid_int > 100000) {
+        y_grid_int = 0;
+    }
+    return {x_grid_int, y_grid_int};
+}
+
 // Destructor of the RRT class
 RRT::~RRT() {
     // Do something in here, free up used memory, print message, etc.
@@ -30,19 +46,36 @@ RRT::RRT(ros::NodeHandle &nh): nh_(nh), gen((std::random_device())()) {
     pf_sub_ = nh_.subscribe(pose_topic, 10, &RRT::pf_callback, this);
     scan_sub_ = nh_.subscribe(scan_topic, 10, &RRT::scan_callback, this);
 
-    // TODO: create a occupancy grid
-
+    // Create a occupancy grid
+    occupancy_grids = std::vector<std::vector<bool>>(500, std::vector<bool>(200, true));
     ROS_INFO("Created new RRT Object.");
 }
 
 void RRT::scan_callback(const sensor_msgs::LaserScan::ConstPtr &scan_msg) {
-    // The scan callback, update your occupancy grid here
-    // Args:
-    //    scan_msg (*LaserScan): pointer to the incoming scan message
-    // Returns:
-    //
+    //update the occupancy grid 
+    double rear_to_lidar = 0.29275;
 
-    // TODO: update your occupancy grid
+    // Get Lidar coordinates
+    double x_lidar = x_current + rear_to_lidar * std::cos(heading_current);
+    double y_lidar = y_current + rear_to_lidar * std::sin(heading_current);
+
+    // Added all obstacles' grid into occupancy grid vector
+    for (unsigned int i = 0; i < scan_msg->ranges.size(); i++) {
+        if (!std::isinf(scan_msg->ranges[i]) && !std::isnan(scan_msg->ranges[i])) {
+            double distance = scan_msg->ranges[i]; 
+            double local_angle = scan_msg->angle_min + scan_msg->angle_increment * i;
+            double global_angle = local_angle + heading_current;
+            double x_obstacle = x_lidar + distance * std::cos(global_angle);
+            double y_obstacle = y_lidar + distance * std::sin(global_angle);
+
+            std::vector<unsigned int> grid_coordinates = convert_frame(x_obstacle, y_obstacle);
+            for (unsigned int j = std::max((int)grid_coordinates[0] - 6, 0); j <= std::min((int)grid_coordinates[0] + 6, (int)occupancy_grids.size() - 1); j++) {
+                for (unsigned int k = std::max((int)grid_coordinates[1] - 6, 0); k <= std::min((int)grid_coordinates[1] + 6, (int)occupancy_grids[0].size() - 1); k++) {
+                    occupancy_grids[j][k] = false;
+                }
+            }
+        }
+    }
 }
 
 void RRT::pf_callback(const geometry_msgs::PoseStamped::ConstPtr &pose_msg) {
@@ -52,6 +85,9 @@ void RRT::pf_callback(const geometry_msgs::PoseStamped::ConstPtr &pose_msg) {
     //    pose_msg (*PoseStamped): pointer to the incoming pose message
     // Returns:
     //
+    x_current = pose_msg->pose.position.x;
+    y_current = pose_msg->pose.position.y;
+
 
     // tree as std::vector
     std::vector<Node> tree;
