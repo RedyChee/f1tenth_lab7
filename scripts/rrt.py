@@ -48,11 +48,11 @@ class RRT(object):
 		# TODO: create subscribers
 		rospy.Subscriber(pf_topic, PoseStamped, self.pf_callback)
 		rospy.Subscriber(scan_topic, LaserScan, self.scan_callback)
-		rospy.Subscriber(nav_topic, LaserScan, self.nav_callback)
 
 		# publishers
 		# TODO: create a drive message publisher, and other publishers that you might need
-
+		rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size = 1)
+		
 		# class attributes
 		# TODO: maybe create your occupancy grid here
 
