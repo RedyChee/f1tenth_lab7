@@ -6,7 +6,7 @@
 // Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
 // Make sure you have read through the header file as well
 
-#include "rrt/rrt.h"
+#include "f1tenth_lab7/rrt.h"
 
 // Destructor of the RRT class
 RRT::~RRT() {

@@ -6,7 +6,7 @@
 // Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
 
 
-#include "rrt/rrt.h"
+#include "f1tenth_lab7/rrt.h"
 
 int main(int argc, char** argv) {
     ros::init(argc, argv, "rrt");
