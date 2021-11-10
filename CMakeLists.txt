@@ -109,10 +109,9 @@ find_package(catkin REQUIRED COMPONENTS
 ## CATKIN_DEPENDS: catkin_packages dependent projects also need
 ## DEPENDS: system dependencies of this project that dependent projects also need
 catkin_package(
-#  INCLUDE_DIRS include
-#  LIBRARIES f1tenth_lab7
-#  CATKIN_DEPENDS ackermann_msgs geometry_msgs nav_msgs roscpp rospy sensor_msgs std_msgs tf visualization_msgs
-#  DEPENDS system_lib
+ INCLUDE_DIRS include
+ LIBRARIES f1tenth_lab7
+ CATKIN_DEPENDS ackermann_msgs geometry_msgs roscpp rospy sensor_msgs std_msgs tf
 )
 
 ###########
@@ -139,7 +138,8 @@ include_directories(
 ## Declare a C++ executable
 ## With catkin_make all packages are built within a single CMake context
 ## The recommended prefix ensures that target names across packages don't collide
-# add_executable(${PROJECT_NAME}_node src/f1tenth_lab7_node.cpp)
+add_executable(rrt_node node/rrt_node.cpp src/rrt.cpp)
+add_dependencies(rrt_node ${f110_rrt_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
@@ -152,9 +152,9 @@ include_directories(
 # add_dependencies(${PROJECT_NAME}_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-# target_link_libraries(${PROJECT_NAME}_node
-#   ${catkin_LIBRARIES}
-# )
+target_link_libraries(rrt_node
+  ${catkin_LIBRARIES}
+)
 
 #############
 ## Install ##
