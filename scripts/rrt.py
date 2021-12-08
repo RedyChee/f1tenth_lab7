@@ -38,9 +38,9 @@ class RRT(object):
 	def __init__(self):
 		# topics, not saved as attributes
 		# TODO: grab topics from param file, you'll need to change the yaml file
-		pf_topic = rospy.get_param('pose_topic')
-		scan_topic = rospy.get_param('scan_topic')
-		nav_topic = rospy.get_param('nav_topic')
+		pf_topic = rospy.get_param('/rrt/pose_topic')
+		scan_topic = rospy.get_param('/rrt/scan_topic')
+		nav_topic = rospy.get_param('/rrt/nav_topic')
 
 		# you could add your own parameters to the rrt_params.yaml file,
 		# and get them here as class attributes as shown above.
