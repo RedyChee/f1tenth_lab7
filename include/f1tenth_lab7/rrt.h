@@ -29,6 +29,8 @@
 #include <boost/algorithm/string.hpp>
 #include <random>
 
+std::vector<unsigned int> convert_frame(double x_global, double y_global, double x_off = 14.50, double y_off = 0.70);
+
 // Struct defining the Node object in the RRT tree.
 // More fields could be added to thiis struct if more info needed.
 // You can choose to use this or not
@@ -57,6 +59,18 @@ private:
     tf::TransformListener listener;
 
     // TODO: create RRT params
+    std::vector<std::vector<bool>> occupancy_grids; //binary occupancy grid
+
+    // Current goal point
+    double x_goal;
+    double y_goal;
+
+    // Current vehicle location
+    double x_current;
+    double y_current;
+
+    //function for control
+    double angle, heading_current;
 
     // random generator, use this
     std::mt19937 gen;
