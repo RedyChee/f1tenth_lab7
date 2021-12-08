@@ -11,7 +11,7 @@
 int main(int argc, char** argv) {
     ros::init(argc, argv, "rrt");
     ros::NodeHandle nh;
-    RRT rrt(nh);
+    RRT rrt(nh, RRT_type::RRT_star);
     ros::spin();
     return 0;
 }

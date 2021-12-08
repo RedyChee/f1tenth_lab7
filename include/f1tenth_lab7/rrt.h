@@ -15,7 +15,9 @@
 #include <geometry_msgs/Point.h>
 #include <ackermann_msgs/AckermannDriveStamped.h>
 #include <nav_msgs/OccupancyGrid.h>
+#include <nav_msgs/Odometry.h>
 #include <tf/transform_listener.h>
+#include <visualization_msgs/Marker.h>
 
 // standard
 #include <math.h>
@@ -29,7 +31,21 @@
 #include <boost/algorithm/string.hpp>
 #include <random>
 
-std::vector<unsigned int> convert_frame(double x_global, double y_global, double x_off = 14.50, double y_off = 0.70);
+// define parameters here
+#define STEER_LENGTH 0.30
+#define TERMINATE_LENGTH 0.10
+#define LOOKAHEAD_DISTANCE 0.60
+#define KP 1.00
+#define PI 3.1415927
+#define ETA 0.60
+#define MAX_ITERATION 100
+
+// enum type for the switch between RRT and RRT*
+enum RRT_type {
+    RRT_base,
+    RRT_star
+};
+
 
 // Struct defining the Node object in the RRT tree.
 // More fields could be added to thiis struct if more info needed.
@@ -44,33 +60,58 @@ typedef struct Node {
 
 class RRT {
 public:
-    RRT(ros::NodeHandle &nh);
+    RRT(ros::NodeHandle &nh, RRT_type rrt_Type);
     virtual ~RRT();
 private:
     ros::NodeHandle nh_;
 
     // ros pub/sub
-    // TODO: add the publishers and subscribers you need
 
     ros::Subscriber pf_sub_;
     ros::Subscriber scan_sub_;
+
+    ros::Publisher drive_pub_;
+    ros::Publisher mapvisual_pub_;
+    ros::Publisher points_pub_;
+    ros::Publisher waypoint_pub_;
+    ros::Publisher edges_pub_;
 
     // tf stuff
     tf::TransformListener listener;
 
     // TODO: create RRT params
     std::vector<std::vector<bool>> occupancy_grids; //binary occupancy grid
+    std::vector<std::vector<bool>> occupancy_grids_prior;  // prior of vector occupancy grid
 
     // Current goal point
     double x_goal;
     double y_goal;
 
+    // parameters for the sample space
+    double x_limit_top;
+    double x_limit_bot;
+    double y_limit_left;
+    double y_limit_right;
+
+    // parameters for the current car's way point
+    double x_target;
+    double y_target;
+
     // Current vehicle location
     double x_current;
     double y_current;
 
+    // markers for visualization
+    visualization_msgs::Marker marker;
+    visualization_msgs::Marker marker_2;
+    visualization_msgs::Marker marker_3;
+    visualization_msgs::Marker marker_4;
+    // defines RRT type
+    RRT_type rrt_type;
+
     //function for control
     double angle, heading_current;
+    void reactive_control();
 
     // random generator, use this
     std::mt19937 gen;
@@ -80,7 +121,7 @@ private:
 
     // callbacks
     // where rrt actually happens
-    void pf_callback(const geometry_msgs::PoseStamped::ConstPtr& pose_msg);
+    void pf_callback(const nav_msgs::Odometry &odom_msg);
     // updates occupancy grid
     void scan_callback(const sensor_msgs::LaserScan::ConstPtr& scan_msg);
 

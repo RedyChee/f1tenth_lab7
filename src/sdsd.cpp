@@ -1,12 +1,19 @@
-// ESE 680
-// RRT assignment
-// Author: Hongrui Zheng
+// RRT and RRT star implementation
+// Author: Lejun Jiang, Hongrui Zheng
 
 // This file contains the class definition of tree nodes and RRT
-// Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
-// Make sure you have read through the header file as well
+// Reference: https://arxiv.org/pdf/1105.1186.pdf
 
-#include "f1tenth_lab7/rrt.h"
+#include "lejun_jiang_roslab_7/rrt.h"
+
+// define parameters here
+#define STEER_LENGTH 0.30
+#define TERMINATE_LENGTH 0.10
+#define LOOKAHEAD_DISTANCE 0.60
+#define KP 1.00
+#define PI 3.1415927
+#define ETA 0.60
+#define MAX_ITERATION 100
 
 // convert global frame to grid frame
 // grid size: 0.05m * 0.05m
@@ -31,51 +38,82 @@ RRT::~RRT() {
 }
 
 // Constructor of the RRT class
-RRT::RRT(ros::NodeHandle &nh, RRT_type rrt_Type): nh_(nh), gen((std::random_device())()), rrt_type(rrt_Type) {
-
-    // TODO: Load parameters from yaml file, you could add your own parameters to the rrt_params.yaml file
+RRT::RRT(ros::NodeHandle &nh, RRT_type rrt_Type) : nh_(nh), gen((std::random_device())()), rrt_type(rrt_Type) {
+    // Skipped: Load parameters from yaml file, you could add your own parameters to the rrt_params.yaml file
+    // nh_.getParam("pose_topic", pose_topic);
+    // nh_.getParam("scan_topic", scan_topic);
     std::string pose_topic, scan_topic;
     pose_topic = "/odom";
     scan_topic = "/scan";
 
     // ROS publishers
-    // TODO: create publishers for the the drive topic, and other topics you might need
-
-    // ROS subscribers
-    // TODO: create subscribers as you need
-    pf_sub_ = nh_.subscribe(pose_topic, 10, &RRT::pf_callback, this);
-    scan_sub_ = nh_.subscribe(scan_topic, 10, &RRT::scan_callback, this);
+    // create publishers for the the drive topic, and other topics you might need
     drive_pub_ = nh_.advertise<ackermann_msgs::AckermannDriveStamped>("/nav", 1000);
     mapvisual_pub_ = nh_.advertise<visualization_msgs::Marker>("/env_viz", 1000);
     points_pub_ = nh_.advertise<visualization_msgs::Marker>("/dynamic_viz", 1000);
     waypoint_pub_ = nh_.advertise<visualization_msgs::Marker>("/static_viz", 1000);
     edges_pub_ = nh_.advertise<visualization_msgs::Marker>("/tree_lines", 1000);
 
-    // Create a occupancy grid
-    occupancy_grids_prior = std::vector<std::vector<bool>>(500, std::vector<bool>(200, true));
-    occupancy_grids = occupancy_grids_prior;
+    // ROS subscribers
+    // create subscribers as you need
+    pf_sub_ = nh_.subscribe(pose_topic, 10, &RRT::pf_callback, this);
+    scan_sub_ = nh_.subscribe(scan_topic, 10, &RRT::scan_callback, this);
 
+    // create an occupancy grid
+    occupancy_grids_prior = std::vector<std::vector<bool>>(500, std::vector<bool>(200, true));
+
+    // set the occupancy grid according to knowledge about the levine hall
+    for (unsigned int i = 0; i <= y_rr; i++) {  // right wall
+        for (unsigned int j = 0; j < occupancy_grids_prior.size(); j++) {
+            occupancy_grids_prior[j][i] = false;
+        }
+    }
+    for (unsigned int i = y_ll; i < occupancy_grids_prior[0].size(); i++) {  // left wall
+        for (unsigned int j = 0; j < occupancy_grids_prior.size(); j++) {
+            occupancy_grids_prior[j][i] = false;
+        }
+    }
+    for (unsigned int i = 0; i < occupancy_grids_prior[0].size(); i++) {  // bot wall
+        for (unsigned int j = 0; j <= x_bb; j++) {
+            occupancy_grids_prior[j][i] = false;
+        }
+    }
+    for (unsigned int i = 0; i < occupancy_grids_prior[0].size(); i++) {  // upper wall
+        for (unsigned int j = x_tt; j < occupancy_grids_prior.size(); j++) {
+            occupancy_grids_prior[j][i] = false;
+        }
+    }
+    for (unsigned int i = y_rl; i <= y_lr; i++) {  // inner parts
+        for (unsigned int j = x_bt; j <= x_tb; j++) {
+            occupancy_grids_prior[j][i] = false;
+        }
+    }
+
+    occupancy_grids = occupancy_grids_prior;
     ROS_INFO("Created new RRT Object.");
 }
 
-void RRT::scan_callback(const sensor_msgs::LaserScan::ConstPtr &scan_msg) {
-    //update the occupancy grid
-    occupancy_grids = occupancy_grids_prior;
-    double rear_to_lidar = 0.29275;
+void RRT::scan_callback(const sensor_msgs::LaserScan &scan_msg) {
+    // The scan callback, update your occupancy grid here
+    // each point scanned results in a square of 0.6m * 0.6m blocked around it
+    // Args:
+    //    scan_msg (*LaserScan): pointer to the incoming scan message
+    // Returns:
+    //
 
-    // Get Lidar coordinates
+    // reset the occupancy grids
+    occupancy_grids = occupancy_grids_prior;
+    // update occupancy grid
+    double rear_to_lidar = 0.29275;
     double x_lidar = x_current + rear_to_lidar * std::cos(heading_current);
     double y_lidar = y_current + rear_to_lidar * std::sin(heading_current);
-
-    // Added all obstacles' grid into occupancy grid vector
-    for (unsigned int i = 0; i < scan_msg->ranges.size(); i++) {
-        if (!std::isinf(scan_msg->ranges[i]) && !std::isnan(scan_msg->ranges[i])) {
-            double distance = scan_msg->ranges[i]; 
-            double local_angle = scan_msg->angle_min + scan_msg->angle_increment * i;
+    for (unsigned int i = 0; i < scan_msg.ranges.size(); i++) {
+        if (!std::isinf(scan_msg.ranges[i]) && !std::isnan(scan_msg.ranges[i])) {
+            double distance = scan_msg.ranges[i];
+            double local_angle = scan_msg.angle_min + scan_msg.angle_increment * i;
             double global_angle = local_angle + heading_current;
             double x_obstacle = x_lidar + distance * std::cos(global_angle);
             double y_obstacle = y_lidar + distance * std::sin(global_angle);
-
             std::vector<unsigned int> grid_coordinates = convert_frame(x_obstacle, y_obstacle);
             for (unsigned int j = std::max((int)grid_coordinates[0] - 6, 0); j <= std::min((int)grid_coordinates[0] + 6, (int)occupancy_grids.size() - 1); j++) {
                 for (unsigned int k = std::max((int)grid_coordinates[1] - 6, 0); k <= std::min((int)grid_coordinates[1] + 6, (int)occupancy_grids[0].size() - 1); k++) {
@@ -86,15 +124,17 @@ void RRT::scan_callback(const sensor_msgs::LaserScan::ConstPtr &scan_msg) {
     }
 }
 
-void RRT::pf_callback(const nav_msgs::Odometry &odom_msg) {
+void RRT::pf_callback(const nav_msgs::Odometry &odometry_info) {
     // The pose callback when subscribed to particle filter's inferred pose
     // The RRT main loop happens here
     // Args:
     //    pose_msg (*PoseStamped): pointer to the incoming pose message
     // Returns:
     //
-    x_current = odom_msg.pose.pose.position.x;
-    y_current = odom_msg.pose.pose.position.y;
+
+    // fetch the current location, can be done by a particle filter
+    x_current = odometry_info.pose.pose.position.x;
+    y_current = odometry_info.pose.pose.position.y;
 
     // set the global goal point depending on the car's location
     if (x_current <= 7.00 && y_current <= 2.34) {  // on the right side of the loop
@@ -130,7 +170,7 @@ void RRT::pf_callback(const nav_msgs::Odometry &odom_msg) {
     // tree as std::vector
     std::vector<Node> tree;
 
-    // RRT main loop
+    // the RRT main loop
 
     // define the starter node
     Node start;
@@ -141,14 +181,15 @@ void RRT::pf_callback(const nav_msgs::Odometry &odom_msg) {
 
     // For drawing the sampled points
     marker.points.clear();
-   // points to be added for plotting
+
+    // points to be added for plotting
     geometry_msgs::Point points;
 
     // vector to store the final path
     std::vector<Node> paths;
 
     // each loop creates a new sample in the space, generate up to MAX_ITERATION samples due to on-board computation constraints
-    for(unsigned int i = 0; i < MAX_ITERATION; i++) {
+    for (unsigned int i = 0; i < MAX_ITERATION; i++) {
         std::vector<double> sampled_point = sample();               // sample the free space
         unsigned int nearest_point = nearest(tree, sampled_point);  // get the tree's nearest point
         Node new_node = steer(tree[nearest_point], sampled_point);  // steer the tree toward the sampled point, get new point
@@ -198,8 +239,8 @@ void RRT::pf_callback(const nav_msgs::Odometry &odom_msg) {
     }
 
     // compute current heading
-    double siny_cosp = 2.0 * (odom_msg.pose.pose.orientation.w * odom_msg.pose.pose.orientation.z + odom_msg.pose.pose.orientation.x * odom_msg.pose.pose.orientation.y);
-    double cosy_cosp = 1.0 - 2.0 * (odom_msg.pose.pose.orientation.y * odom_msg.pose.pose.orientation.y + odom_msg.pose.pose.orientation.z * odom_msg.pose.pose.orientation.z);
+    double siny_cosp = 2.0 * (odometry_info.pose.pose.orientation.w * odometry_info.pose.pose.orientation.z + odometry_info.pose.pose.orientation.x * odometry_info.pose.pose.orientation.y);
+    double cosy_cosp = 1.0 - 2.0 * (odometry_info.pose.pose.orientation.y * odometry_info.pose.pose.orientation.y + odometry_info.pose.pose.orientation.z * odometry_info.pose.pose.orientation.z);
     heading_current = std::atan2(siny_cosp, cosy_cosp);
     // using Pure Pursuit algorithm to navigate the car
     double real_distance = std::sqrt((x_target - x_current) * (x_target - x_current) + (y_target - y_current) * (y_target - y_current));
@@ -268,7 +309,6 @@ void RRT::pf_callback(const nav_msgs::Odometry &odom_msg) {
     marker_4.color.b = 0.0;
     edges_pub_.publish(marker_4);
     // path found as Path message
-
 }
 
 void RRT::reactive_control() {
@@ -305,8 +345,7 @@ std::vector<double> RRT::sample() {
     return sampled_point;
 }
 
-
-int RRT::nearest(std::vector<Node> &tree, std::vector<double> &sampled_point) {
+unsigned int RRT::nearest(std::vector<Node> &tree, std::vector<double> &sampled_point) {
     // This method returns the nearest node on the tree to the sampled point
     // Args:
     //     tree (std::vector<Node>): the current RRT tree
@@ -327,9 +366,9 @@ int RRT::nearest(std::vector<Node> &tree, std::vector<double> &sampled_point) {
 }
 
 Node RRT::steer(Node &nearest_node, std::vector<double> &sampled_point) {
-    // The function steer:(x,y)->z returns a point such that z is “closer” 
-    // to y than x is. The point z returned by the function steer will be 
-    // such that z minimizes ||z−y|| while at the same time maintaining 
+    // The function steer:(x,y)->z returns a point such that z is “closer”
+    // to y than x is. The point z returned by the function steer will be
+    // such that z minimizes ||z−y|| while at the same time maintaining
     //||z−x|| <= max_expansion_dist, for a prespecified max_expansion_dist > 0
 
     // basically, expand the tree towards the sample point (within a max dist)
@@ -348,7 +387,7 @@ Node RRT::steer(Node &nearest_node, std::vector<double> &sampled_point) {
 }
 
 bool RRT::check_collision(Node &nearest_node, Node &new_node) {
-    // This method returns a boolean indicating if the path between the 
+    // This method returns a boolean indicating if the path between the
     // nearest node and the new node created from steering is collision free
     // Args:
     //    nearest_node (Node): nearest node on the tree to the sampled point
@@ -393,7 +432,7 @@ std::vector<Node> RRT::find_path(std::vector<Node> &tree, Node &latest_added_nod
     // Returns:
     //   path (std::vector<Node>): the vector that represents the order of
     //      of the nodes traversed as the found path
-    
+
     std::vector<Node> found_path;
     geometry_msgs::Point points;
     marker_4.points.clear();
@@ -451,7 +490,7 @@ double RRT::line_cost(Node &n1, Node &n2) {
 }
 
 std::vector<int> RRT::near(std::vector<Node> &tree, Node &node) {
-    // This method returns the set of Nodes in the neighborhood of a 
+    // This method returns the set of Nodes in the neighborhood of a
     // node.
     // Args:
     //   tree (std::vector<Node>): the current tree
