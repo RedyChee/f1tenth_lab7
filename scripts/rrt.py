@@ -20,7 +20,10 @@ from geometry_msgs.msg import Pose
 from geometry_msgs.msg import Point
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import OccupancyGrid
+from nav_msgs.msg import Odometry
 
+import matplotlib.pyplot as plt
+import cv2
 # TODO: import as you need
 
 # class def for tree nodes
@@ -36,27 +39,31 @@ class Node(object):
 # class def for RRT
 class RRT(object):
 	def __init__(self):
-		# topics, not saved as attributes
-		# TODO: grab topics from param file, you'll need to change the yaml file
-		pf_topic = rospy.get_param('/rrt/pose_topic')
-		scan_topic = rospy.get_param('/rrt/scan_topic')
-		nav_topic = rospy.get_param('/rrt/nav_topic')
+		pf_topic = '/odom'
+		scan_topic = '/scan'
+		nav_topic = '/nav'
 
-		# you could add your own parameters to the rrt_params.yaml file,
-		# and get them here as class attributes as shown above.
+		# Occupancy Grid
+		self.world_size = (500, 200)
+		self.occupancy_grid = np.ones(self.world_size)
+		self.yaw = 0
 
-		# TODO: create subscribers
-		rospy.Subscriber(pf_topic, PoseStamped, self.pf_callback)
-		rospy.Subscriber(scan_topic, LaserScan, self.scan_callback)
+		angle_min = -3.141592741
+		angle_max =  3.141592741
+		angle_inc =  0.005823155
+		n = 1080
 
-		# publishers
-		# TODO: create a drive message publisher, and other publishers that you might need
-		rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size = 1)
-		
-		# class attributes
-		# TODO: maybe create your occupancy grid here
+		self.angles = np.array([angle_min + i*angle_inc for i in range(n)])
+		self.current_pos = np.array([0,0])
+
+		rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=10)
+		rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=10)
+		rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size=10)
 
 	def scan_callback(self, scan_msg):
+		# print(self.occupancy_grid)
+		# print(len(self.occupancy_grid))
+		# print(scan_msg)
 		"""
 		LaserScan callback, you should update your occupancy grid here
 
@@ -65,6 +72,40 @@ class RRT(object):
 		Returns:
 
 		"""
+		rear_to_lidar = 0.29275
+		x_current, y_current = self.current_pos
+		heading_current = self.yaw
+		x_lidar = x_current + rear_to_lidar * np.cos(heading_current)
+		y_lidar = y_current + rear_to_lidar * np.sin(heading_current)
+
+		distances = scan_msg.ranges
+		global_angle = heading_current + self.angles
+		x_obstacles = x_lidar + distances * np.cos(global_angle)
+		y_obstacles = y_lidar + distances * np.sin(global_angle)
+
+		#convert frame
+		x_off = 14.5
+		y_off = 0.7
+		x_grid = x_obstacles + x_off
+		y_grid = y_obstacles + y_off
+		x_grid /= 0.05
+		y_grid /= 0.05
+
+		x_grid = x_grid.round(0).astype(int)
+		y_grid = y_grid.round(0).astype(int)
+
+		x_grid[x_grid > 100000] = 0
+		y_grid[y_grid > 100000] = 0
+
+		for i in range(np.maximum(x_grid[0] -6, 0), np.minimum(x_grid[0] +6, self.world_size[0]-1)):
+			for j in range(np.maximum(y_grid[0] -6, 0), np.minimum(y_grid[0] +6, self.world_size[1]-1)):
+				# print(i, j)
+				self.occupancy_grid[i][j] = 0
+
+		# cv2.imshow('Maps', cv2.resize(self.occupancy_grid, (960, 540))) 
+		# cv2.waitKey(3)
+
+
 		return None
 
 	def pf_callback(self, pose_msg):
@@ -77,6 +118,17 @@ class RRT(object):
 		Returns:
 
 		"""
+		position = pose_msg.pose.pose.position
+		orientation = pose_msg.pose.pose.orientation
+		self.current_pos = np.array([position.x, position.y])
+		
+		quarternion = [orientation.x, orientation.y, orientation.z, orientation.w]
+		(roll, pitch, yaw) = tf.transformations.euler_from_quaternion(quarternion)
+		
+		# robot orientation and position
+		self.yaw = yaw
+		print(self.current_pos)
+		# print(self.yaw)
 
 		return None
 
@@ -198,7 +250,7 @@ class RRT(object):
 		Args:
 				tree ([]): current tree as a list of Nodes
 				node (Node): current node we're finding neighbors for
-		Returns:
+		Returns:a
 				neighborhood ([]): neighborhood of nodes as a list of Nodes
 		"""
 		neighborhood = []
@@ -211,3 +263,6 @@ def main():
 
 if __name__ == '__main__':
 	main()
+
+
+

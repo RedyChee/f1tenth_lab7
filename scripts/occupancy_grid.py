@@ -10,7 +10,7 @@ import cv2
 
 import matplotlib.pyplot as plt
 class OccupancyGrid:
-    def __init__(self, origin, size, resolution, occupied_thres, free_thres):
+    def __init__(self, origin, size, resolution):
         self.origin = origin
         self.gridsize = size
         self.resolution = resolution
@@ -20,7 +20,7 @@ class OccupancyGrid:
         self.theta = 0
         self.count = 0
 
-        self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size=1)
+        self.scan_sub = rospy.Subscriber('/scan', LaserScan, self.scan_callback, queue_size=10)
         self.odom_sub = rospy.Subscriber('/odom', Odometry, self.odom_callback, queue_size=10)
         self.rate = rospy.Rate(10)
 
@@ -197,7 +197,7 @@ class OccupancyGrid:
 def main(): 
     rospy.init_node('occupancygrid')  
     # value chosen based on mymap.yaml
-    occupancy = OccupancyGrid((-51, -51), (2048, 2048), 0.05, 0.65, 0.2)
+    occupancy = OccupancyGrid(origin=(-51, -51), size=(2048, 2048), resolution=0.1)
     rospy.spin()
  
 if __name__ == '__main__':
