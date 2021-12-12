@@ -2,7 +2,7 @@
 <launch>
   <include file="$(find f1tenth_simulator)/launch/simulator.launch"/>
   
-  <node pkg="f1tenth_lab7" type="test.py" name="rrt" output="screen">
+  <node pkg="f1tenth_lab7" type="rrt.py" name="rrt" output="screen">
   
 	<rosparam file="$(find f1tenth_lab7)/config/rrt_params.yaml" command="load"/>
 	

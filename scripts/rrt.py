@@ -48,6 +48,8 @@ class RRT(object):
 		self.world_size = (500, 200)
 		self.occupancy_grid = np.ones(self.world_size)
 		self.yaw = 0
+		self.resolution = 0.05
+		self.plot_width = 12
 
 		angle_min = -3.141592741
 		angle_max =  3.141592741
@@ -73,39 +75,25 @@ class RRT(object):
 		Returns:
 
 		"""
+		# reset occupancy grid
 		self.occupancy_grid = np.ones(self.world_size)
-		rear_to_lidar = 0.29275
-		x_current, y_current = self.current_pos
-		heading_current = self.yaw
-		x_lidar = x_current + rear_to_lidar * np.cos(heading_current)
-		y_lidar = y_current + rear_to_lidar * np.sin(heading_current)
 
-		distances = scan_msg.ranges
-		global_angle = heading_current + self.angles
-		x_obstacles = x_lidar + distances * np.cos(global_angle)
-		y_obstacles = y_lidar + distances * np.sin(global_angle)
+		# convert frame
+		x_obstacles, y_obstacles = self.lidar_to_global(scan_msg.ranges)
+		x_grids, y_grids = self.global_to_grid(x_obstacles, y_obstacles)
 
-		#convert frame
-		x_off = 14.5
-		y_off = 0.7
-		x_grid = x_obstacles + x_off
-		y_grid = y_obstacles + y_off
-		x_grid /= 0.05
-		y_grid /= 0.05
+		# update occupancy grid
+		for i in range(len(scan_msg.ranges)):
+			x_grid, y_grid = x_grids[i], y_grids[i]
+			plot_width = self.plot_width #px
 
-		x_grid = x_grid.round(0).astype(int)
-		y_grid = y_grid.round(0).astype(int)
+			for j in range(np.maximum(x_grid - plot_width//2, 0), np.minimum(x_grid + plot_width//2, self.world_size[0]-1)+1):
+				for k in range(np.maximum(y_grid - plot_width//2, 0), np.minimum(y_grid + plot_width//2, self.world_size[1]-1)+1):
+					self.occupancy_grid[j][k] = 0
 
-		x_grid[x_grid > 100000] = 0
-		y_grid[y_grid > 100000] = 0
-
-		for k in range (0, len(scan_msg.ranges)):
-			for i in range(np.maximum(x_grid[k] -6, 0), np.minimum(x_grid[k] +6, self.world_size[0]-1)):
-				for j in range(np.maximum(y_grid[k] -6, 0), np.minimum(y_grid[k] +6, self.world_size[1]-1)):
-					self.occupancy_grid[i][j] = 0
-
-		# cv2.imshow('Maps', cv2.resize(self.occupancy_grid, (960, 540))) 
-		# cv2.waitKey(3)
+		# visualize occupancy grid
+		cv2.imshow('Maps', self.occupancy_grid) 
+		cv2.waitKey(3)
 
 
 		return None
@@ -122,13 +110,13 @@ class RRT(object):
 		"""
 		position = pose_msg.pose.pose.position
 		orientation = pose_msg.pose.pose.orientation
-		self.current_pos = np.array([position.x, position.y])
 		
 		quarternion = [orientation.x, orientation.y, orientation.z, orientation.w]
 		(roll, pitch, yaw) = tf.transformations.euler_from_quaternion(quarternion)
 		
-		# robot orientation and position
+		# update robot orientation and position
 		self.yaw = yaw
+		self.current_pos = np.array([position.x, position.y])
 		# print(self.current_pos)
 		# print(self.yaw)
 
@@ -136,6 +124,32 @@ class RRT(object):
 
 	def nav_callback(self, nav_msg):
 		return None
+	
+	def lidar_to_global(self, distances):
+		# lidar -> car -> global
+		rear_to_lidar = 0.29275
+		x_lidar = self.current_pos[0] + rear_to_lidar * np.cos(self.yaw)
+		y_lidar = self.current_pos[1] + rear_to_lidar * np.sin(self.yaw)
+
+		global_angle = self.yaw + self.angles
+		x_obstacles = x_lidar + distances * np.cos(global_angle)
+		y_obstacles = y_lidar + distances * np.sin(global_angle)
+
+		return x_obstacles, y_obstacles
+	
+	def global_to_grid(self, x_global, y_global):
+		x_off = 14.5
+		y_off = 0.7
+
+		x_grid = (x_global + x_off)/self.resolution
+		y_grid = (y_global + y_off)/self.resolution
+
+		# filter out of range values
+		x_grid[x_grid > 100000] = 0
+		y_grid[y_grid > 100000] = 0
+
+		return x_grid.round(0).astype(int), y_grid.round(0).astype(int)
+
 	
 	def sample(self):
 		"""
