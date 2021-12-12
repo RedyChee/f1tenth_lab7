@@ -30,6 +30,7 @@
 #include <algorithm>
 #include <boost/algorithm/string.hpp>
 #include <random>
+#include <opencv2/opencv.hpp>
 
 // define parameters here
 #define STEER_LENGTH 0.30
@@ -80,8 +81,8 @@ private:
     tf::TransformListener listener;
 
     // TODO: create RRT params
-    std::vector<std::vector<bool>> occupancy_grids; //binary occupancy grid
-    std::vector<std::vector<bool>> occupancy_grids_prior;  // prior of vector occupancy grid
+    std::vector<std::vector<int>> occupancy_grids; //binary occupancy grid
+    std::vector<std::vector<int>> occupancy_grids_prior;  // prior of vector occupancy grid
 
     // Current goal point
     double x_goal;

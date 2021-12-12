@@ -52,7 +52,7 @@ RRT::RRT(ros::NodeHandle &nh, RRT_type rrt_Type): nh_(nh), gen((std::random_devi
     edges_pub_ = nh_.advertise<visualization_msgs::Marker>("/tree_lines", 1000);
 
     // Create a occupancy grid
-    occupancy_grids_prior = std::vector<std::vector<bool>>(500, std::vector<bool>(200, true));
+    occupancy_grids_prior = std::vector<std::vector<int>>(500, std::vector<int>(200, 1));
     occupancy_grids = occupancy_grids_prior;
 
     ROS_INFO("Created new RRT Object.");
@@ -79,11 +79,27 @@ void RRT::scan_callback(const sensor_msgs::LaserScan::ConstPtr &scan_msg) {
             std::vector<unsigned int> grid_coordinates = convert_frame(x_obstacle, y_obstacle);
             for (unsigned int j = std::max((int)grid_coordinates[0] - 6, 0); j <= std::min((int)grid_coordinates[0] + 6, (int)occupancy_grids.size() - 1); j++) {
                 for (unsigned int k = std::max((int)grid_coordinates[1] - 6, 0); k <= std::min((int)grid_coordinates[1] + 6, (int)occupancy_grids[0].size() - 1); k++) {
-                    occupancy_grids[j][k] = false;
+                    occupancy_grids[j][k] = 0;
+                    // printf("data[%d][%d]: %d \n", j, k, occupancy_grids[j][k]);
+
                 }
             }
         }
     }
+    
+
+    // Display occupancy grid
+    // cv::Mat image(occupancy_grids.size(),occupancy_grids.at(0).size(), CV_64FC1), output_img, resized_img;
+    // for(int i = 0; i < image.rows; ++i){
+    //     for(int j = 0; j <image.cols; ++j){
+    //         image.at<int>(i, j) = occupancy_grids.at(i).at(j);
+    //         // printf("data[%d][%d]: %d \n", i, j, image.at<int>(i, j));
+    //     }
+    // }
+    // cv::threshold(image, output_img, 0, 1, cv::THRESH_BINARY);
+    // cv::resize(output_img, resized_img, cv::Size(960, 540));
+    // cv::imshow("Maps", resized_img);
+    // cv::waitKey(3);
 }
 
 void RRT::pf_callback(const nav_msgs::Odometry &odom_msg) {
@@ -359,7 +375,7 @@ bool RRT::check_collision(Node &nearest_node, Node &new_node) {
     bool collision = false;
     for (unsigned int i = 0; i <= 100; i++) {
         std::vector<unsigned int> coordinate = convert_frame(nearest_node.x + i * 0.01 * (new_node.x - nearest_node.x), nearest_node.y + i * 0.01 * (new_node.y - nearest_node.y));
-        if (occupancy_grids[coordinate[0]][coordinate[1]] == false) {
+        if (occupancy_grids[coordinate[0]][coordinate[1]] == 0) {
             collision = true;
         }
     }
