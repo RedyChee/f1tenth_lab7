@@ -11,6 +11,7 @@ import numpy as np
 from numpy import linalg as LA
 import math
 
+import sys
 import rospy
 import tf
 from sensor_msgs.msg import LaserScan
@@ -34,7 +35,7 @@ class Node(object):
 		self.y = None
 		self.parent = None
 		self.cost = None # only used in RRT*
-		self.is_root = false
+		self.is_root = False
 
 # class def for RRT
 class RRT(object):
@@ -72,6 +73,7 @@ class RRT(object):
 		Returns:
 
 		"""
+		self.occupancy_grid = np.ones(self.world_size)
 		rear_to_lidar = 0.29275
 		x_current, y_current = self.current_pos
 		heading_current = self.yaw
@@ -97,10 +99,10 @@ class RRT(object):
 		x_grid[x_grid > 100000] = 0
 		y_grid[y_grid > 100000] = 0
 
-		for i in range(np.maximum(x_grid[0] -6, 0), np.minimum(x_grid[0] +6, self.world_size[0]-1)):
-			for j in range(np.maximum(y_grid[0] -6, 0), np.minimum(y_grid[0] +6, self.world_size[1]-1)):
-				# print(i, j)
-				self.occupancy_grid[i][j] = 0
+		for k in range (0, len(scan_msg.ranges)):
+			for i in range(np.maximum(x_grid[k] -6, 0), np.minimum(x_grid[k] +6, self.world_size[0]-1)):
+				for j in range(np.maximum(y_grid[k] -6, 0), np.minimum(y_grid[k] +6, self.world_size[1]-1)):
+					self.occupancy_grid[i][j] = 0
 
 		# cv2.imshow('Maps', cv2.resize(self.occupancy_grid, (960, 540))) 
 		# cv2.waitKey(3)
@@ -127,7 +129,7 @@ class RRT(object):
 		
 		# robot orientation and position
 		self.yaw = yaw
-		print(self.current_pos)
+		# print(self.current_pos)
 		# print(self.yaw)
 
 		return None
