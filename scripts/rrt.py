@@ -10,9 +10,10 @@ Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
 import numpy as np
 from numpy import linalg as LA
 import math
-
+import os
 import sys
 import rospy
+import rospkg
 import tf
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
@@ -22,9 +23,15 @@ from geometry_msgs.msg import Point
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Odometry
+from visualization_msgs.msg import Marker
 
 import matplotlib.pyplot as plt
 import cv2
+
+from visualizer import plot_marker
+
+
+
 # TODO: import as you need
 
 # class def for tree nodes
@@ -39,10 +46,14 @@ class Node(object):
 
 # class def for RRT
 class RRT(object):
-	def __init__(self):
+	def __init__(self, gp_path):
 		pf_topic = '/odom'
 		scan_topic = '/scan'
 		nav_topic = '/nav'
+
+		# Goalpoints
+		self.goalpoints = np.genfromtxt(gp_path, delimiter=',')[:, :2]
+		self.l = 0.5 #radial distance to goalpoint from car
 
 		# Occupancy Grid
 		self.world_size = (500, 200)
@@ -50,6 +61,7 @@ class RRT(object):
 		self.yaw = 0
 		self.resolution = 0.05
 		self.plot_width = 12
+		
 
 		angle_min = -3.141592741
 		angle_max =  3.141592741
@@ -62,6 +74,8 @@ class RRT(object):
 		rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=10)
 		rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=10)
 		rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size=10)
+		self.marker_pub = rospy.Publisher('/goal_point', Marker, queue_size = 1)
+
 
 	def scan_callback(self, scan_msg):
 		# print(self.occupancy_grid)
@@ -92,8 +106,8 @@ class RRT(object):
 					self.occupancy_grid[j][k] = 0
 
 		# visualize occupancy grid
-		cv2.imshow('Maps', self.occupancy_grid) 
-		cv2.waitKey(3)
+		# cv2.imshow('Maps', self.occupancy_grid) 
+		# cv2.waitKey(3)
 
 
 		return None
@@ -113,18 +127,51 @@ class RRT(object):
 		
 		quarternion = [orientation.x, orientation.y, orientation.z, orientation.w]
 		(roll, pitch, yaw) = tf.transformations.euler_from_quaternion(quarternion)
-		
+		trans = np.array([position.x, position.y, position.z])
 		# update robot orientation and position
 		self.yaw = yaw
 		self.current_pos = np.array([position.x, position.y])
 		# print(self.current_pos)
 		# print(self.yaw)
 
+		tr_global_to_car = self.get_tr_matrix(quarternion, trans)
+		goal_x, goal_y = self.get_goalpoint(tr_global_to_car, plot=True)
+
 		return None
 
 	def nav_callback(self, nav_msg):
 		return None
 	
+	def get_goalpoint(self, tr_global_to_car, plot=False):
+		n = len(self.goalpoints)
+		ipt = np.zeros((4, n))
+		ipt[:2, :] = self.goalpoints.T
+		ipt[3, :] = 1
+
+		#transform to base link (car's frame)
+		opt = np.linalg.inv(tr_global_to_car).dot(ipt)
+		xy = opt[:2, :].T #transformed
+		xy[xy[:,0]<0] = 10 #filter points behind the car
+
+		#select goal point
+		distance = np.sum(xy**2, axis=1)
+		idx = np.argmin(np.absolute(distance-self.l**2))
+		goal_x, goal_y = xy[idx]
+
+		if plot:
+			plot_marker(self.marker_pub, goal_x, goal_y) #visualize goal point
+
+		return goal_x, goal_y
+	
+	def get_tr_matrix(self, quarternion, trans):
+		# get 4x4 transformation matrix
+		tr = np.zeros((4,4))
+		rot = tf.transformations.quaternion_matrix(quarternion)[:3, :3]
+		tr[:3,:3] = rot
+		tr[:3, 3] = trans
+		tr[-1, -1] = 1 
+		return tr
+
 	def lidar_to_global(self, distances):
 		# lidar -> car -> global
 		rear_to_lidar = 0.29275
@@ -274,7 +321,11 @@ class RRT(object):
 
 def main():
 	rospy.init_node('rrt', anonymous=True)
-	rrt = RRT()
+	rospack = rospkg.RosPack()
+	package_path = rospack.get_path('f1tenth_lab7')
+	gp_path = os.path.join(package_path, 'logs/waypoints.csv')
+
+	rrt = RRT(gp_path=gp_path)
 	rospy.spin()
 
 if __name__ == '__main__':
