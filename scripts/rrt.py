@@ -9,6 +9,7 @@ Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
 """
 import numpy as np
 from numpy import linalg as LA
+import random
 import math
 import os
 import sys
@@ -37,12 +38,12 @@ from visualizer import plot_marker
 # class def for tree nodes
 # It's up to you if you want to use this
 class Node(object):
-	def __init__(self):
-		self.x = None
-		self.y = None
-		self.parent = None
-		self.cost = None # only used in RRT*
-		self.is_root = False
+	def __init__(self, x=None, y=None, parent=None, cost=None, is_root=False):
+		self.x = x
+		self.y = y
+		self.parent = parent
+		self.cost = cost # only used in RRT*
+		self.is_root = is_root
 
 # class def for RRT
 class RRT(object):
@@ -54,6 +55,9 @@ class RRT(object):
 		# Goalpoints
 		self.goalpoints = np.genfromtxt(gp_path, delimiter=',')[:, :2]
 		self.l = 0.5 #radial distance to goalpoint from car
+		self.STEER_LENGTH = 0.3
+		self.MINIMUM_GOAL_DISTANCE = 0.1
+		self.LOOKAHEAD_DISTANCE = 0.6
 
 		# Occupancy Grid
 		self.world_size = (500, 200)
@@ -75,12 +79,9 @@ class RRT(object):
 		rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=10)
 		rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size=10)
 		self.marker_pub = rospy.Publisher('/goal_point', Marker, queue_size = 1)
-
+		self.drive_pub = rospy.Publisher('/nav', AckermannDriveStamped, queue_size = 1)
 
 	def scan_callback(self, scan_msg):
-		# print(self.occupancy_grid)
-		# print(len(self.occupancy_grid))
-		# print(scan_msg)
 		"""
 		LaserScan callback, you should update your occupancy grid here
 
@@ -137,7 +138,68 @@ class RRT(object):
 		tr_global_to_car = self.get_tr_matrix(quarternion, trans)
 		goal_x, goal_y = self.get_goalpoint(tr_global_to_car, plot=True)
 
+		tree = []
+		paths = []
+		starting_node = Node(x=self.current_pos[0], y=self.current_pos[1], is_root=True)
+		tree.append(starting_node)
+
+		MAX_ITERATION = 10
+		for i in range(MAX_ITERATION):
+			sampled_point = self.sample()
+			nearest_node_idx, min_distance = self.nearest(tree, sampled_point)
+			# print(nearest_node_idx, min_distance)
+			new_node = self.steer(tree[nearest_node_idx], sampled_point, min_distance)
+			new_node.parent = nearest_node_idx;                
+			if (not self.check_collision(tree[nearest_node_idx], new_node)):
+				# rrt
+				tree.append(new_node)
+
+				if (is_goal(new_node, goal_x, goal_y)):
+					paths = find_path(tree, new_node)
+					print(paths)
+					break
+		
+		# Pure Pursuit
+		l = len(paths)
+
+		for i in range(l):
+			distance = ((paths[l -1 -i].x - self.current_pos[0])**2 + (paths[l -1 -i].y - self.current_pos[1])**2)**0.5
+			print(distance)
+			if (distance >= self.LOOKAHEAD_DISTANCE):
+				### BUG HERE ###
+				x_target = paths[l -1 -i].x
+				y_target = paths[l -1 -i].y
+				break
+
+		siny_cosp = 2.0 * (orientation.w * orientation.z + orientation.x * orientation.y)
+		cosy_cosp = 1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z)
+		heading_current = np.arctan2(siny_cosp, cosy_cosp)
+
+		# using Pure Pursuit algorithm to navigate the car
+		real_distance = ((x_target - self.current_pos[0])**2 + (y_target - self.current_pos[1])**2)**0.5
+		lookahead_angle = np.arctan2(y_target - self.current_pos[1], x_target - self.current_pos[0])
+		del_y = real_distance * np.sin(lookahead_angle - heading_current)
+		angle = 2.00 * del_y / (real_distance **2 )
+		# print(del_y, angle)
+		self.steer_pure_pursuit(angle)
+
+
 		return None
+
+	def steer_pure_pursuit(self, angle): 	
+		if -np.pi/18 < angle < np.pi/18:
+			velocity = 3
+		elif -np.pi/9 < angle <= -np.pi/18 or np.pi/18 <= angle < np.pi/9:
+			velocity = 2
+		else:
+			velocity = 1
+			
+		drive_msg = AckermannDriveStamped()
+		drive_msg.header.stamp = rospy.Time.now()
+		drive_msg.header.frame_id = "laser"
+		drive_msg.drive.steering_angle = angle
+		drive_msg.drive.speed = velocity
+		self.drive_pub.publish(drive_msg)		
 
 	def nav_callback(self, nav_msg):
 		return None
@@ -191,8 +253,8 @@ class RRT(object):
 		y_grid = (y_global + y_off)/self.resolution
 
 		# filter out of range values
-		x_grid[x_grid > 100000] = 0
-		y_grid[y_grid > 100000] = 0
+		x_grid[(x_grid > 100000) | (x_grid < 0)] = 0
+		y_grid[(y_grid > 100000) | (y_grid < 0)] = 0
 
 		return x_grid.round(0).astype(int), y_grid.round(0).astype(int)
 
@@ -206,9 +268,11 @@ class RRT(object):
 				(x, y) (float float): a tuple representing the sampled point
 
 		"""
-		x = None
-		y = None
-		return (x, y)
+		coordinates = np.argwhere(self.occupancy_grid == 0)
+		xy = random.choice(coordinates)
+		
+		# print(xy)
+		return xy
 
 	def nearest(self, tree, sampled_point):
 		"""
@@ -220,10 +284,22 @@ class RRT(object):
 		Returns:
 				nearest_node (int): index of neareset node on the tree
 		"""
-		nearest_node = 0
-		return nearest_node
+		nearest_node_idx = 0
+		# sx, sy = sampled points 
+		sx, sy = sampled_point
+		min_distance = ((tree[0].x - sx)**2 + (tree[0].y - sy)**2)**0.5
 
-	def steer(self, nearest_node, sampled_point):
+		for idx in range(1, len(tree)):
+			node = tree[idx]
+			distance = ((node.x - sx)**2 + (node.y - sy)**2)**0.5
+
+			if distance < min_distace:
+				min_distance = distance
+				nearest_node_idx = idx
+
+		return nearest_node_idx, min_distance
+
+	def steer(self, nearest_node, sampled_point, act_distance):
 		"""
 		This method should return a point in the viable set such that it is closer 
 		to the nearest_node than sampled_point is.
@@ -234,7 +310,9 @@ class RRT(object):
 		Returns:
 				new_node (Node): new node created from steering
 		"""
-		new_node = None
+		x = nearest_node.x + self.STEER_LENGTH / act_distance * (sampled_point[0] - nearest_node.x)
+		y = nearest_node.y + self.STEER_LENGTH / act_distance * (sampled_point[1] - nearest_node.y)
+		new_node = Node(x=x, y=y)
 		return new_node
 
 	def check_collision(self, nearest_node, new_node):
@@ -249,7 +327,18 @@ class RRT(object):
 				collision (bool): whether the path between the two nodes are in collision
 				                  with the occupancy grid
 		"""
-		return True
+		collision = False 
+		for i in range(100):
+			x, y = np.array([nearest_node.x + i * 0.01 * (new_node.x - nearest_node.x)]), np.array([nearest_node.y + i * 0.01 * (new_node.y - nearest_node.y)])
+			grid_x, grid_y = self.global_to_grid(x, y)
+			grid_x, grid_y = grid_x[0], grid_y[0]
+			# print(grid_x, grid_y)
+			if self.occupancy_grid[grid_x][grid_y]:
+				collision = True
+		
+		# print(f'collision: {collision}')
+
+		return collision
 
 	def is_goal(self, latest_added_node, goal_x, goal_y):
 		"""
@@ -263,7 +352,12 @@ class RRT(object):
 		Returns:
 				close_enough (bool): true if node is close enoughg to the goal
 		"""
-		return False
+		close_enough = False
+		distance = ((latest_added_node.x - goal_x)**2 + (latest_added_node.y - goal_y)**2)**0.5
+		if distance < self.MINIMUM_GOAL_DISTANCE:
+			close_enough = True
+
+		return close_enough
 
 	def find_path(self, tree, latest_added_node):
 		"""
@@ -277,6 +371,14 @@ class RRT(object):
 				path ([]): valid path as a list of Nodes
 		"""
 		path = []
+		path.append(latest_added_node)
+		next_node = tree[latest_added_node.parent]
+
+		while (not next_node.is_root):
+			path.append(next_node)
+			next_node = tree[next_node.parent]
+		
+		path.append(tree[0])
 		return path
 
 
