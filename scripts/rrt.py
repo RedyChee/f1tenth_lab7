@@ -106,8 +106,8 @@ class RRT(object):
 					self.occupancy_grid[j][k] = 0
 
 		# visualize occupancy grid
-		# cv2.imshow('Maps', self.occupancy_grid) 
-		# cv2.waitKey(3)
+		cv2.imshow('Maps', self.occupancy_grid) 
+		cv2.waitKey(3)
 
 
 		return None
@@ -152,7 +152,6 @@ class RRT(object):
 		opt = np.linalg.inv(tr_global_to_car).dot(ipt)
 		xy = opt[:2, :].T #transformed
 		xy[xy[:,0]<0] = 10 #filter points behind the car
-
 		#select goal point
 		distance = np.sum(xy**2, axis=1)
 		idx = np.argmin(np.absolute(distance-self.l**2))
@@ -320,7 +319,7 @@ class RRT(object):
 		return neighborhood
 
 def main():
-	rospy.init_node('rrt', anonymous=True)
+	rospy.init_node('rrt', anonymous=True, log_level=rospy.DEBUG)
 	rospack = rospkg.RosPack()
 	package_path = rospack.get_path('f1tenth_lab7')
 	gp_path = os.path.join(package_path, 'logs/waypoints.csv')

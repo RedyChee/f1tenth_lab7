@@ -89,17 +89,17 @@ void RRT::scan_callback(const sensor_msgs::LaserScan::ConstPtr &scan_msg) {
     
 
     // Display occupancy grid
-    // cv::Mat image(occupancy_grids.size(),occupancy_grids.at(0).size(), CV_64FC1), output_img, resized_img;
-    // for(int i = 0; i < image.rows; ++i){
-    //     for(int j = 0; j <image.cols; ++j){
-    //         image.at<int>(i, j) = occupancy_grids.at(i).at(j);
-    //         // printf("data[%d][%d]: %d \n", i, j, image.at<int>(i, j));
-    //     }
-    // }
-    // cv::threshold(image, output_img, 0, 1, cv::THRESH_BINARY);
-    // cv::resize(output_img, resized_img, cv::Size(960, 540));
-    // cv::imshow("Maps", resized_img);
-    // cv::waitKey(3);
+     cv::Mat image(occupancy_grids.size(),occupancy_grids.at(0).size(), CV_64FC1), output_img, resized_img;
+     for(int i = 0; i < image.rows; ++i){
+         for(int j = 0; j <image.cols; ++j){
+             image.at<int>(i, j) = occupancy_grids.at(i).at(j);
+             // printf("data[%d][%d]: %d \n", i, j, image.at<int>(i, j));
+         }
+     }
+     cv::threshold(image, output_img, 0, 1, cv::THRESH_BINARY);
+     cv::resize(output_img, resized_img, cv::Size(960, 540));
+     cv::imshow("Maps", resized_img);
+     cv::waitKey(3);
 }
 
 void RRT::pf_callback(const nav_msgs::Odometry &odom_msg) {
