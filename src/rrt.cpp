@@ -338,7 +338,7 @@ int RRT::nearest(std::vector<Node> &tree, std::vector<double> &sampled_point) {
             nearest_node = ite;
         }
     }
-
+//		ROS_INFO_STREAM(min_distance);
     return nearest_node;
 }
 
@@ -394,6 +394,7 @@ bool RRT::is_goal(Node &latest_added_node, double goal_x, double goal_y) {
     //   close_enough (bool): true if node close enough to the goal
 
     bool close_enough = false;
+    ROS_INFO_STREAM(std::sqrt(std::pow((latest_added_node.x - goal_x), 2) + std::pow((latest_added_node.y - goal_y), 2)));
     if (std::sqrt(std::pow((latest_added_node.x - goal_x), 2) + std::pow((latest_added_node.y - goal_y), 2)) <= TERMINATE_LENGTH) {
         close_enough = true;
     }
