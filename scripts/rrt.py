@@ -286,35 +286,16 @@ class RRT(object):
 				(x, y) (float float): a tuple representing the sampled point
 
 		"""
-		# rospy.logdebug("%s", self.occupancy_grid)
-		# coordinates = np.argwhere(self.occupancy_grid == 1) #why ==0?
-		# rospy.logdebug("%s", type(coordinates))
-		# rospy.logdebug("%s", coordinates)
-		# xy = random.choice(coordinates)
 		self.x_limit_top = 2.5
-		self.x_limit_bot = 0.5
+		self.x_limit_bot = 0
 		self.y_limit_left = 0.4
-		self.y_limit_right = -0.88
-
-		# listener = tf.TransformListener()
-		# listener.waitForTransform('/map', '/base_link', rospy.Time.now(), rospy.Duration(2.0))
-		# trans,rot = listener.lookupTransform('/map', '/base_link', rospy.Time(0))
-		# tr = self.get_tr_matrix(rot,trans)
+		self.y_limit_right = -0.71
 
 		x = np.random.uniform(self.x_limit_bot, self.x_limit_top)
 		y = np.random.uniform(self.y_limit_right, self.y_limit_left)
 
 		xy = self.tr_global_to_car.dot(np.array([x, y , 0, 1]))[:2]
-		# self.x_limit_top = tr.dot([self.x_limit_top, 0 , 0, 1])[0]
-		# self.x_limit_bot = tr.dot([self.x_limit_bot, 0 , 0, 1])[0]
-		# self.y_limit_left = tr.dot([0, self.y_limit_left , 0, 1])[1]
-		# self.y_limit_right = tr.dot([0, self.y_limit_right , 0, 1])[1]
-		# rospy.logdebug("self.x_limit_top = %s", self.x_limit_top)
-		# rospy.logdebug("self.x_limit_bot = %s", self.x_limit_bot)
-		# rospy.logdebug("self.y_limit_left = %s", self.y_limit_left)
-		# rospy.logdebug("self.y_limit_right = %s", self.y_limit_right)
-		# x = np.random.uniform(self.x_limit_bot, self.x_limit_top)
-		# y = np.random.uniform(self.y_limit_right, self.y_limit_left)
+
 		rospy.logdebug("xy = %s", xy)
 		return xy
 
