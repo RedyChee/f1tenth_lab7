@@ -8,6 +8,7 @@ This file contains the class definition for tree nodes and RRT
 Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
 """
 import numpy as np
+import message_filters
 from numpy import linalg as LA
 import random
 import math
@@ -56,7 +57,7 @@ class RRT(object):
 		self.goalpoints = np.genfromtxt(gp_path, delimiter=',')[:, :2]
 		self.l = 2.3 #radial distance to goalpoint from car
 		self.STEER_LENGTH = 0.35
-		self.MINIMUM_GOAL_DISTANCE = 0.1
+		self.MINIMUM_GOAL_DISTANCE = 0.5
 		self.LOOKAHEAD_DISTANCE = 0.6
 
 		# Occupancy Grid
@@ -71,26 +72,70 @@ class RRT(object):
 		angle_max =  3.141592741
 		angle_inc =  0.005823155
 		n = 1080
+		self.running = False
+		self.goal_x_pre = 0
+		self.goal_y_pre = 0
 
 		self.angles = np.array([angle_min + i*angle_inc for i in range(n)])
 		self.current_pos = np.array([0,0])
 
-		rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=1)
-		rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=1)
+		# self.odom_sub = rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=1)
+		# self.scan_sub = rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=1)
+		self.scan_sub = message_filters.Subscriber("/scan", LaserScan)
+		self.odom_sub = message_filters.Subscriber("/odom", Odometry)
+		self.ts = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.odom_sub],1,0.1)
+		self.ts.registerCallback(self.callback)
 		self.marker_pub = rospy.Publisher('/goal_point', Marker, queue_size = 1)
 		self.sample_pub = rospy.Publisher('/sample_point', Marker, queue_size = 1)
 		self.drive_pub = rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size = 1)
 
+	# def scan_callback(self, scan_msg):
+	# 	"""
+	# 	LaserScan callback, you should update your occupancy grid here
 
-	def scan_callback(self, scan_msg):
+	# 	Args: 
+	# 			scan_msg (LaserScan): incoming message from subscribed topic
+	# 	Returns:
+
+	# 	"""
+	# 	# reset occupancy grid
+	# 	self.occupancy_grid = np.ones(self.world_size)
+
+	# 	# convert frame
+	# 	x_obstacles, y_obstacles = self.lidar_to_global(scan_msg.ranges)
+	# 	x_grids, y_grids = self.global_to_grid(x_obstacles, y_obstacles)
+
+	# 	# update occupancy grid
+	# 	for i in range(len(scan_msg.ranges)):
+	# 		x_grid, y_grid = x_grids[i], y_grids[i]
+	# 		plot_width = self.plot_width #px
+
+	# 		for j in range(np.maximum(x_grid - plot_width//2, 0), np.minimum(x_grid + plot_width//2, self.world_size[0]-1)+1):
+	# 			for k in range(np.maximum(y_grid - plot_width//2, 0), np.minimum(y_grid + plot_width//2, self.world_size[1]-1)+1):
+	# 				self.occupancy_grid[j][k] = 0
+
+	# 	# visualize occupancy grid
+	# 	# _, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
+	# 	# cv2.namedWindow('Maps', cv2.WINDOW_NORMAL)
+	# 	# cv2.resizeWindow('Maps', (960,540))
+	# 	# cv2.imshow('Maps', grid_img) 
+	# 	cv2.imshow('Maps', self.occupancy_grid) 
+	# 	cv2.waitKey(3)
+
+
+
+	def callback(self, scan_msg, pose_msg):
 		"""
-		LaserScan callback, you should update your occupancy grid here
+		The pose callback when subscribed to particle filter's inferred pose
+		Here is where the main RRT loop happens
 
 		Args: 
-				scan_msg (LaserScan): incoming message from subscribed topic
+				pose_msg (PoseStamped): incoming message from subscribed topic
 		Returns:
 
 		"""
+		rospy.logdebug("running")
+
 		# reset occupancy grid
 		self.occupancy_grid = np.ones(self.world_size)
 
@@ -112,21 +157,12 @@ class RRT(object):
 		# cv2.namedWindow('Maps', cv2.WINDOW_NORMAL)
 		# cv2.resizeWindow('Maps', (960,540))
 		# cv2.imshow('Maps', grid_img) 
-		cv2.imshow('Maps', self.occupancy_grid) 
-		cv2.waitKey(3)
+		# cv2.imshow('Maps', self.occupancy_grid) 
+		# cv2.waitKey(3)
 
-
-
-	def pf_callback(self, pose_msg):
-		"""
-		The pose callback when subscribed to particle filter's inferred pose
-		Here is where the main RRT loop happens
-
-		Args: 
-				pose_msg (PoseStamped): incoming message from subscribed topic
-		Returns:
-
-		"""
+		# if self.running:
+		# 	return 
+		# self.running = True
 		position = pose_msg.pose.pose.position
 		orientation = pose_msg.pose.pose.orientation
 		
@@ -144,6 +180,11 @@ class RRT(object):
 		self.tr_global_to_car = self.get_tr_matrix(quarternion, trans)
 
 		goal_x, goal_y = self.get_goalpoint(self.tr_global_to_car, plot=True)
+		# if self.goal_x_pre == goal_x and self.goal_y_pre == goal_y:
+		# 	rospy.logdebug("same goal")
+		# 	return
+		# self.goal_x_pre = goal_x
+		# self.goal_y_pre = goal_y
 
 		tree = []
 		paths = []
@@ -163,12 +204,14 @@ class RRT(object):
 				# rospy.logdebug("tree = %s", tree)
 				if (self.is_goal(new_node, goal_x, goal_y)):
 					paths = self.find_path(tree, new_node)
-					# rospy.logdebug("paths = %s", paths)
+					rospy.logdebug("paths = %s", paths)
 					break
 		
 		# Pure Pursuit
 		l = len(paths)
 		rospy.logdebug("l = %s", l)
+		for i in range(l):
+			rospy.logdebug("node = %s, %s", paths[i].x, paths[i].y)
 		if (l==0):
 			pass
 		else:
@@ -176,6 +219,7 @@ class RRT(object):
 				distance = ((paths[l -1 -i].x - self.current_pos[0])**2 + (paths[l -1 -i].y - self.current_pos[1])**2)**0.5
 				if (distance >= self.LOOKAHEAD_DISTANCE):
 					### BUG HERE ###
+					rospy.logdebug("bug")
 					x_target = paths[l -1 -i].x
 					y_target = paths[l -1 -i].y
 					break
@@ -192,8 +236,6 @@ class RRT(object):
 			rospy.logdebug("angle = %s", angle)
 			self.steer_pure_pursuit(angle)
 
-
-
 	def steer_pure_pursuit(self, angle): 	
 		if -np.pi/18 < angle < np.pi/18:
 			velocity = 1
@@ -207,10 +249,8 @@ class RRT(object):
 		drive_msg.header.frame_id = "laser"
 		drive_msg.drive.steering_angle = angle
 		drive_msg.drive.speed = velocity
-		self.drive_pub.publish(drive_msg)		
-
-	def nav_callback(self, nav_msg):
-		return None
+		self.drive_pub.publish(drive_msg)
+		rospy.logdebug("velocity = %s", drive_msg.drive.speed)		
 	
 	def get_goalpoint(self, tr_global_to_car, plot=True):
 		n = len(self.goalpoints)
@@ -231,6 +271,11 @@ class RRT(object):
 		# rospy.logdebug("min_dist = %s", np.min(np.absolute(distance-self.l**2)))
 		goal_x, goal_y = self.goalpoints[idx]
 		# rospy.logdebug("current_pos = %s", self.current_pos)
+
+		# goal_dist = ((goal_x-self.l)**2 + (goal_y -self.l)**2)**0.5
+		# rospy.logdebug("goal dis = %s", goal_dist)
+		# if goal_dist <= 1:
+		# 	goal_x, goal_y = self.goalpoints[idx+10]
 
 		if plot:
 			rospy.logdebug("goal_xy = %s", self.goalpoints[idx])
@@ -296,7 +341,7 @@ class RRT(object):
 
 		xy = self.tr_global_to_car.dot(np.array([x, y , 0, 1]))[:2]
 
-		rospy.logdebug("xy = %s", xy)
+		# rospy.logdebug("xy = %s", xy)
 		return xy
 
 	def nearest(self, tree, sampled_point):
@@ -320,8 +365,8 @@ class RRT(object):
 			if distance < min_distance:
 				min_distance = distance
 				nearest_node_idx = idx
-		rospy.logdebug("nearest node = %s, %s", tree[nearest_node_idx].x, tree[nearest_node_idx].y)		
-		rospy.logdebug("min_dist with nearest node = %s", min_distance)
+		# rospy.logdebug("nearest node = %s, %s", tree[nearest_node_idx].x, tree[nearest_node_idx].y)		
+		# rospy.logdebug("min_dist with nearest node = %s", min_distance)
 		return nearest_node_idx, min_distance
 
 	def steer(self, nearest_node, sampled_point, act_distance):
@@ -338,7 +383,7 @@ class RRT(object):
 		x = nearest_node.x + self.STEER_LENGTH / act_distance * (sampled_point[0] - nearest_node.x)
 		y = nearest_node.y + self.STEER_LENGTH / act_distance * (sampled_point[1] - nearest_node.y)
 		plot_sample(self.sample_pub, x, y)
-		rospy.logdebug("steer_node = %s, %s", x, y)
+		# rospy.logdebug("steer_node = %s, %s", x, y)
 		new_node = Node(x=x, y=y)
 		return new_node
 
