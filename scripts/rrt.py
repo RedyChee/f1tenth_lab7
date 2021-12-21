@@ -18,6 +18,7 @@ import os
 import sys
 import rospy
 import rospkg
+from rospy.client import DEBUG
 import tf
 from sensor_msgs.msg import LaserScan
 from geometry_msgs.msg import PoseStamped
@@ -60,7 +61,7 @@ class RRT(object):
 		self.l = 2.3 #radial distance to goalpoint from car
 		self.STEER_LENGTH = 0.35
 		self.MINIMUM_GOAL_DISTANCE = 0.5
-		self.LOOKAHEAD_DISTANCE = 0.6
+		self.LOOKAHEAD_DISTANCE = 1
 
 		# Occupancy Grid
 		self.world_size = (500, 200)
@@ -189,8 +190,9 @@ class RRT(object):
 				if (distance >= self.LOOKAHEAD_DISTANCE):
 					x_target = paths[l -1 -i].x
 					y_target = paths[l -1 -i].y
-					break
-
+					# rospy.logdebug("l -1 -i = %s", l -1 -i)
+					# rospy.logdebug("target = %s, %s", x_target, y_target)
+					break			
 			siny_cosp = 2.0 * (orientation.w * orientation.z + orientation.x * orientation.y)
 			cosy_cosp = 1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z)
 			heading_current = np.arctan2(siny_cosp, cosy_cosp)
@@ -209,7 +211,7 @@ class RRT(object):
 		elif -np.pi/9 < angle <= -np.pi/18 or np.pi/18 <= angle < np.pi/9:
 			velocity = 1
 		else:
-			velocity = 1.5
+			velocity = 1
 			
 		drive_msg = AckermannDriveStamped()
 		drive_msg.header.stamp = rospy.Time.now()
@@ -298,8 +300,8 @@ class RRT(object):
 		"""
 		self.x_limit_top = 2.5
 		self.x_limit_bot = 0
-		self.y_limit_left = 0.4
-		self.y_limit_right = -0.71
+		self.y_limit_left = 1.2 #0.4
+		self.y_limit_right = -0.825 #-0.71
 
 		x = np.random.uniform(self.x_limit_bot, self.x_limit_top)
 		y = np.random.uniform(self.y_limit_right, self.y_limit_left)
