@@ -10,33 +10,24 @@ Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
 import numpy as np
 from numpy.lib.function_base import gradient
 import message_filters
-import array as arr
-from numpy import linalg as LA
-import random
-import math
 import os
-import sys
 import rospy
 import rospkg
 from rospy.client import DEBUG
 import tf
 from sensor_msgs.msg import LaserScan
-from geometry_msgs.msg import PoseStamped
-from geometry_msgs.msg import PointStamped
-from geometry_msgs.msg import Pose
-from geometry_msgs.msg import Point
 from ackermann_msgs.msg import AckermannDriveStamped
-from nav_msgs.msg import OccupancyGrid
 from nav_msgs.msg import Odometry
 from visualization_msgs.msg import Marker
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge, CvBridgeError
+from skimage import img_as_ubyte
 
 import matplotlib.pyplot as plt
 import cv2
 
 from visualizer import plot_marker, plot_sample
-
-
-
+import time
 # TODO: import as you need
 
 # class def for tree nodes
@@ -65,12 +56,9 @@ class RRT(object):
 
 		# Occupancy Grid
 		self.world_size = (500, 200)
-		self.occupancy_grid = np.ones(self.world_size)
-		self.grid = 0
 		self.yaw = 0
 		self.resolution = 0.05
 		self.plot_width = 12
-		
 
 		angle_min = -3.141592741
 		angle_max =  3.141592741
@@ -82,48 +70,84 @@ class RRT(object):
 
 		self.angles = np.array([angle_min + i*angle_inc for i in range(n)])
 		self.current_pos = np.array([0,0])
-
-		self.scan_sub = rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=10, tcp_nodelay=True)
-		self.odom_sub = rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=10, tcp_nodelay=True)
-		# self.scan_sub = message_filters.Subscriber("/scan", LaserScan)
-		# self.odom_sub = message_filters.Subscriber("/odom", Odometry)
-		# self.ts = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.odom_sub],1,0.1)
-		# self.ts.registerCallback(self.callback)
+		
+		self.bridge = CvBridge()
+		# self.scan_sub = rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=10, tcp_nodelay=True)
+		# self.odom_sub = rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=10, tcp_nodelay=True)
+		self.scan_sub = message_filters.Subscriber("/scan", LaserScan)
+		self.odom_sub = message_filters.Subscriber("/odom", Odometry)
+		self.ts = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.odom_sub],1,0.1)
+		self.ts.registerCallback(self.pf_callback)
 		self.marker_pub = rospy.Publisher('/goal_point', Marker, queue_size = 10)
 		self.sample_pub = rospy.Publisher('/sample_point', Marker, queue_size = 10)
 		self.drive_pub = rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size = 10)
+		self.image_pub = rospy.Publisher("/occ_grid", Image, queue_size=10)
 
-	def scan_callback(self, scan_msg):
-		"""
-		LaserScan callback, you should update your occupancy grid here
+	# def scan_callback(self, scan_msg):
+	# 	"""
+	# 	LaserScan callback, you should update your occupancy grid here
 
-		Args: 
-				scan_msg (LaserScan): incoming message from subscribed topic
-		Returns:
+	# 	Args: 
+	# 			scan_msg (LaserScan): incoming message from subscribed topic
+	# 	Returns:
 
-		"""
+	# 	"""
+	# 	# reset occupancy grid
+	# 	self.occupancy_grid = np.ones(self.world_size)
+
+	# 	# convert frame
+	# 	x_obstacles, y_obstacles = self.lidar_to_global(scan_msg.ranges)
+	# 	x_grids, y_grids = self.global_to_grid(x_obstacles, y_obstacles)
+	# 	# update occupancy grid
+	# 	# start = time.time()
+	# 	for i in range(len(scan_msg.ranges)):
+	# 		x_grid, y_grid = x_grids[i], y_grids[i]
+
+	# 		self.occupancy_grid[max(x_grid - self.plot_width//2, 0): min(x_grid + self.plot_width//2, self.world_size[0]-1)+1, 
+	# 							max(y_grid - self.plot_width//2, 0): min(y_grid + self.plot_width//2, self.world_size[1]-1)+1] = 0
+	# 	# end = time.time()
+	# 	# print("occ grid time = %.3fs" %(end-start))
+	# # 	# visualize occupancy grid
+	# # 	# _, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
+	# # 	# cv2.namedWindow('Maps', cv2.WINDOW_NORMAL)
+	# # 	# cv2.resizeWindow('Maps', (960,540))
+	# # 	# cv2.imshow('Maps', grid_img) 
+	# 	cv2.imshow('Maps', self.occupancy_grid) 
+	# 	cv2.waitKey(3)
+
+	def pf_callback(self, scan_msg, pose_msg):
 		# reset occupancy grid
 		self.occupancy_grid = np.ones(self.world_size)
 
 		# convert frame
 		x_obstacles, y_obstacles = self.lidar_to_global(scan_msg.ranges)
 		x_grids, y_grids = self.global_to_grid(x_obstacles, y_obstacles)
-
 		# update occupancy grid
+		# start = time.time()
 		for i in range(len(scan_msg.ranges)):
 			x_grid, y_grid = x_grids[i], y_grids[i]
 
 			self.occupancy_grid[max(x_grid - self.plot_width//2, 0): min(x_grid + self.plot_width//2, self.world_size[0]-1)+1, 
 								max(y_grid - self.plot_width//2, 0): min(y_grid + self.plot_width//2, self.world_size[1]-1)+1] = 0
-	# 	# visualize occupancy grid
-	# 	# _, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
-	# 	# cv2.namedWindow('Maps', cv2.WINDOW_NORMAL)
-	# 	# cv2.resizeWindow('Maps', (960,540))
-	# 	# cv2.imshow('Maps', grid_img) 
-		cv2.imshow('Maps', self.occupancy_grid) 
-		cv2.waitKey(3)
+		# end = time.time()
+		# print("occ grid time = %.3fs" %(end-start))
 
-	def pf_callback(self, pose_msg):
+		# visualize occupancy grid
+		# _, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
+		# cv2.namedWindow('Maps', cv2.WINDOW_NORMAL)
+		# cv2.resizeWindow('Maps', (960,540))
+		# cv2.imshow('Maps', grid_img) 
+
+		# cv2.imshow('Maps', self.occupancy_grid) 
+		# cv2.waitKey(3)
+
+		_, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
+		cv_image = img_as_ubyte(grid_img)
+		try:
+			self.image_pub.publish(self.bridge.cv2_to_imgmsg(cv_image, 'mono8'))
+		except CvBridgeError as e:
+			print(e)
+
 		"""
 		The pose callback when subscribed to particle filter's inferred pose
 		Here is where the main RRT loop happens
@@ -160,7 +184,6 @@ class RRT(object):
 		paths = []
 		starting_node = Node(x=self.current_pos[0], y=self.current_pos[1], is_root=True)
 		tree.append(starting_node)
-
 		MAX_ITERATION = 30
 		for i in range(MAX_ITERATION):
 			sampled_point = self.sample()
@@ -176,7 +199,6 @@ class RRT(object):
 					paths = self.find_path(tree, new_node)
 					# rospy.logdebug("paths = %s", paths)
 					break
-		
 		# Pure Pursuit
 		l = len(paths)
 		# rospy.logdebug("l = %s", l)
@@ -461,12 +483,8 @@ def main():
 	rospack = rospkg.RosPack()
 	package_path = rospack.get_path('f1tenth_lab7')
 	gp_path = os.path.join(package_path, 'logs/waypoints.csv')
-
 	rrt = RRT(gp_path=gp_path)
 	rospy.spin()
 
 if __name__ == '__main__':
 	main()
-
-
-
