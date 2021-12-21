@@ -52,7 +52,7 @@ class RRT(object):
 		self.l = 2.3 #radial distance to goalpoint from car
 		self.STEER_LENGTH = 0.35
 		self.MINIMUM_GOAL_DISTANCE = 0.5
-		self.LOOKAHEAD_DISTANCE = 1
+		self.LOOKAHEAD_DISTANCE = 1.57
 
 		# Occupancy Grid
 		self.world_size = (500, 200)
@@ -64,9 +64,6 @@ class RRT(object):
 		angle_max =  3.141592741
 		angle_inc =  0.005823155
 		n = 1080
-		self.running = False
-		self.goal_x_pre = 0
-		self.goal_y_pre = 0
 
 		self.angles = np.array([angle_min + i*angle_inc for i in range(n)])
 		self.current_pos = np.array([0,0])
@@ -74,8 +71,8 @@ class RRT(object):
 		self.bridge = CvBridge()
 		# self.scan_sub = rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=10, tcp_nodelay=True)
 		# self.odom_sub = rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=10, tcp_nodelay=True)
-		self.scan_sub = message_filters.Subscriber("/scan", LaserScan)
-		self.odom_sub = message_filters.Subscriber("/odom", Odometry)
+		self.scan_sub = message_filters.Subscriber(scan_topic, LaserScan)
+		self.odom_sub = message_filters.Subscriber(pf_topic, Odometry)
 		self.ts = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.odom_sub],1,0.1)
 		self.ts.registerCallback(self.pf_callback)
 		self.marker_pub = rospy.Publisher('/goal_point', Marker, queue_size = 10)
@@ -132,15 +129,6 @@ class RRT(object):
 		# end = time.time()
 		# print("occ grid time = %.3fs" %(end-start))
 
-		# visualize occupancy grid
-		# _, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
-		# cv2.namedWindow('Maps', cv2.WINDOW_NORMAL)
-		# cv2.resizeWindow('Maps', (960,540))
-		# cv2.imshow('Maps', grid_img) 
-
-		# cv2.imshow('Maps', self.occupancy_grid) 
-		# cv2.waitKey(3)
-
 		_, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
 		cv_image = img_as_ubyte(grid_img)
 		try:
@@ -168,17 +156,10 @@ class RRT(object):
 		self.current_pos = np.array([position.x, position.y])
 		# rospy.logdebug("quartenion = %s", quarternion)
 		# rospy.logdebug("self.current_pos = %s", self.current_pos)
-		# print(self.current_pos)
-		# print(self.yaw)
 
 		self.tr_global_to_car = self.get_tr_matrix(quarternion, trans)
 
 		goal_x, goal_y = self.get_goalpoint(self.tr_global_to_car, plot=True)
-		# if self.goal_x_pre == goal_x and self.goal_y_pre == goal_y:
-		# 	rospy.logdebug("same goal")
-		# 	return
-		# self.goal_x_pre = goal_x
-		# self.goal_y_pre = goal_y
 
 		tree = []
 		paths = []
@@ -229,11 +210,11 @@ class RRT(object):
 
 	def steer_pure_pursuit(self, angle): 	
 		if -np.pi/18 < angle < np.pi/18:
-			velocity = 1
+			velocity = 0.5
 		elif -np.pi/9 < angle <= -np.pi/18 or np.pi/18 <= angle < np.pi/9:
-			velocity = 1
+			velocity = 0.5
 		else:
-			velocity = 1
+			velocity = 0.5
 			
 		drive_msg = AckermannDriveStamped()
 		drive_msg.header.stamp = rospy.Time.now()
@@ -261,11 +242,6 @@ class RRT(object):
 		# rospy.logdebug("min_dist = %s", np.min(np.absolute(distance-self.l**2)))
 		goal_x, goal_y = self.goalpoints[idx]
 		# rospy.logdebug("current_pos = %s", self.current_pos)
-
-		# goal_dist = ((goal_x-self.l)**2 + (goal_y -self.l)**2)**0.5
-		# rospy.logdebug("goal dis = %s", goal_dist)
-		# if goal_dist <= 1:
-		# 	goal_x, goal_y = self.goalpoints[idx+10]
 
 		if plot:
 		# 	rospy.logdebug("goal_xy = %s", self.goalpoints[idx])
@@ -322,8 +298,8 @@ class RRT(object):
 		"""
 		self.x_limit_top = 2.5
 		self.x_limit_bot = 0
-		self.y_limit_left = 1.2 #0.4
-		self.y_limit_right = -0.825 #-0.71
+		self.y_limit_left = 0.8 #0.4
+		self.y_limit_right = -0.75 #-0.71
 
 		x = np.random.uniform(self.x_limit_bot, self.x_limit_top)
 		y = np.random.uniform(self.y_limit_right, self.y_limit_left)
