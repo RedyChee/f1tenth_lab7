@@ -1,4 +1,4 @@
-# f1tenth_lab4
+# f1tenth_lab7
 
 This assignment from [F1TENTH](https://f1tenth.org/learn.html) practices on motion planning.
 
