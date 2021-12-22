@@ -27,11 +27,7 @@ import matplotlib.pyplot as plt
 import cv2
 
 from visualizer import plot_marker, plot_sample
-import time
-# TODO: import as you need
 
-# class def for tree nodes
-# It's up to you if you want to use this
 class Node(object):
 	def __init__(self, x=None, y=None, parent=None, cost=None, is_root=False):
 		self.x = x
@@ -69,8 +65,6 @@ class RRT(object):
 		self.current_pos = np.array([0,0])
 		
 		self.bridge = CvBridge()
-		# self.scan_sub = rospy.Subscriber(scan_topic, LaserScan, self.scan_callback, queue_size=10, tcp_nodelay=True)
-		# self.odom_sub = rospy.Subscriber(pf_topic, Odometry, self.pf_callback, queue_size=10, tcp_nodelay=True)
 		self.scan_sub = message_filters.Subscriber(scan_topic, LaserScan)
 		self.odom_sub = message_filters.Subscriber(pf_topic, Odometry)
 		self.ts = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.odom_sub],1,0.1)
@@ -80,38 +74,6 @@ class RRT(object):
 		self.drive_pub = rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size = 10)
 		self.image_pub = rospy.Publisher("/occ_grid", Image, queue_size=10)
 
-	# def scan_callback(self, scan_msg):
-	# 	"""
-	# 	LaserScan callback, you should update your occupancy grid here
-
-	# 	Args: 
-	# 			scan_msg (LaserScan): incoming message from subscribed topic
-	# 	Returns:
-
-	# 	"""
-	# 	# reset occupancy grid
-	# 	self.occupancy_grid = np.ones(self.world_size)
-
-	# 	# convert frame
-	# 	x_obstacles, y_obstacles = self.lidar_to_global(scan_msg.ranges)
-	# 	x_grids, y_grids = self.global_to_grid(x_obstacles, y_obstacles)
-	# 	# update occupancy grid
-	# 	# start = time.time()
-	# 	for i in range(len(scan_msg.ranges)):
-	# 		x_grid, y_grid = x_grids[i], y_grids[i]
-
-	# 		self.occupancy_grid[max(x_grid - self.plot_width//2, 0): min(x_grid + self.plot_width//2, self.world_size[0]-1)+1, 
-	# 							max(y_grid - self.plot_width//2, 0): min(y_grid + self.plot_width//2, self.world_size[1]-1)+1] = 0
-	# 	# end = time.time()
-	# 	# print("occ grid time = %.3fs" %(end-start))
-	# # 	# visualize occupancy grid
-	# # 	# _, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
-	# # 	# cv2.namedWindow('Maps', cv2.WINDOW_NORMAL)
-	# # 	# cv2.resizeWindow('Maps', (960,540))
-	# # 	# cv2.imshow('Maps', grid_img) 
-	# 	cv2.imshow('Maps', self.occupancy_grid) 
-	# 	cv2.waitKey(3)
-
 	def pf_callback(self, scan_msg, pose_msg):
 		# reset occupancy grid
 		self.occupancy_grid = np.ones(self.world_size)
@@ -119,15 +81,13 @@ class RRT(object):
 		# convert frame
 		x_obstacles, y_obstacles = self.lidar_to_global(scan_msg.ranges)
 		x_grids, y_grids = self.global_to_grid(x_obstacles, y_obstacles)
+
 		# update occupancy grid
-		# start = time.time()
 		for i in range(len(scan_msg.ranges)):
 			x_grid, y_grid = x_grids[i], y_grids[i]
 
 			self.occupancy_grid[max(x_grid - self.plot_width//2, 0): min(x_grid + self.plot_width//2, self.world_size[0]-1)+1, 
 								max(y_grid - self.plot_width//2, 0): min(y_grid + self.plot_width//2, self.world_size[1]-1)+1] = 0
-		# end = time.time()
-		# print("occ grid time = %.3fs" %(end-start))
 
 		_, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
 		cv_image = img_as_ubyte(grid_img)
@@ -137,13 +97,7 @@ class RRT(object):
 			print(e)
 
 		"""
-		The pose callback when subscribed to particle filter's inferred pose
 		Here is where the main RRT loop happens
-
-		Args: 
-				pose_msg (PoseStamped): incoming message from subscribed topic
-		Returns:
-
 		"""
 		position = pose_msg.pose.pose.position
 		orientation = pose_msg.pose.pose.orientation
@@ -180,6 +134,7 @@ class RRT(object):
 					paths = self.find_path(tree, new_node)
 					# rospy.logdebug("paths = %s", paths)
 					break
+		
 		# Pure Pursuit
 		l = len(paths)
 		# rospy.logdebug("l = %s", l)
@@ -277,9 +232,6 @@ class RRT(object):
 		x_grid = (x_global + x_off)/self.resolution
 		y_grid = (y_global + y_off)/self.resolution
 
-		# filter out of range values
-		# x_grid[(x_grid > 100000) | (x_grid < 0)] = 0
-		# y_grid[(y_grid > 100000) | (y_grid < 0)] = 0
 		x_grid[(x_grid >= 499.5)] = 499
 		y_grid[(y_grid >= 199.5)] = 199
 		x_grid[((x_grid < 0))] = 0
@@ -389,7 +341,7 @@ class RRT(object):
 		"""
 		close_enough = False
 		distance = ((latest_added_node.x - goal_x)**2 + (latest_added_node.y - goal_y)**2)**0.5
-		if distance < self.MINIMUM_GOAL_DISTANCE:  # why not <=
+		if distance < self.MINIMUM_GOAL_DISTANCE: 
 			close_enough = True
 			# rospy.logdebug("distance = %s", distance)
 		# rospy.logdebug("close = %s", close_enough)
