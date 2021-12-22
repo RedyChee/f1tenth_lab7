@@ -20,5 +20,7 @@ This assignment from [F1TENTH](https://f1tenth.org/learn.html) practices on moti
 # Limitations
 
 # Videos
-- As the size of the video is too big, it was uploaded into [Google Drive](https://drive.google.com/file/d/1uoO-5A-DiadRHuYyd1e01KXwF101nOKt/view?usp=sharing).
+<img src="lab7.gif"/>
+
+Higher resolution video:(https://drive.google.com/file/d/1uoO-5A-DiadRHuYyd1e01KXwF101nOKt/view?usp=sharing).
 
