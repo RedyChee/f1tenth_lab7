@@ -8,13 +8,12 @@ This file contains the class definition for tree nodes and RRT
 Before you start, please read: https://arxiv.org/pdf/1105.1186.pdf
 """
 import numpy as np
-from numpy.lib.function_base import gradient
 import message_filters
 import os
 import rospy
 import rospkg
-from rospy.client import DEBUG
 import tf
+import cv2
 from sensor_msgs.msg import LaserScan
 from ackermann_msgs.msg import AckermannDriveStamped
 from nav_msgs.msg import Odometry
@@ -22,9 +21,6 @@ from visualization_msgs.msg import Marker
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge, CvBridgeError
 from skimage import img_as_ubyte
-
-import matplotlib.pyplot as plt
-import cv2
 
 from visualizer import plot_marker, plot_sample
 
@@ -43,6 +39,9 @@ class RRT(object):
 		scan_topic = '/scan'
 		nav_topic = '/nav'
 
+		# 0: RRT | 1: RRT*
+		self.rrt_type = 1
+
 		# Goalpoints
 		self.goalpoints = np.genfromtxt(gp_path, delimiter=',')[:, :2]
 		self.l = 2.3 #radial distance to goalpoint from car
@@ -57,7 +56,6 @@ class RRT(object):
 		self.plot_width = 12
 
 		angle_min = -3.141592741
-		angle_max =  3.141592741
 		angle_inc =  0.005823155
 		n = 1080
 
@@ -69,12 +67,17 @@ class RRT(object):
 		self.odom_sub = message_filters.Subscriber(pf_topic, Odometry)
 		self.ts = message_filters.ApproximateTimeSynchronizer([self.scan_sub, self.odom_sub],1,0.1)
 		self.ts.registerCallback(self.pf_callback)
-		self.marker_pub = rospy.Publisher('/goal_point', Marker, queue_size = 10)
-		self.sample_pub = rospy.Publisher('/sample_point', Marker, queue_size = 10)
+		self.marker_pub = rospy.Publisher('/dynamic_viz', Marker, queue_size = 10)
+		self.sample_pub = rospy.Publisher('/waypoint_vis', Marker, queue_size = 10)
 		self.drive_pub = rospy.Publisher(nav_topic, AckermannDriveStamped, queue_size = 10)
 		self.image_pub = rospy.Publisher("/occ_grid", Image, queue_size=10)
 
 	def pf_callback(self, scan_msg, pose_msg):
+		# set parameters for RRT*
+		if self.rrt_type == 1:
+			self.MINIMUM_GOAL_DISTANCE = 0.6
+			self.LOOKAHEAD_DISTANCE = 1.63
+
 		# reset occupancy grid
 		self.occupancy_grid = np.ones(self.world_size)
 
@@ -88,8 +91,8 @@ class RRT(object):
 
 			self.occupancy_grid[max(x_grid - self.plot_width//2, 0): min(x_grid + self.plot_width//2, self.world_size[0]-1)+1, 
 								max(y_grid - self.plot_width//2, 0): min(y_grid + self.plot_width//2, self.world_size[1]-1)+1] = 0
-
-		_, grid_img = cv2.threshold(self.occupancy_grid, 0, 1, cv2.THRESH_BINARY)
+		reverse_grid = np.flipud(np.fliplr(self.occupancy_grid))
+		_, grid_img = cv2.threshold(reverse_grid, 0, 1, cv2.THRESH_BINARY)
 		cv_image = img_as_ubyte(grid_img)
 		try:
 			self.image_pub.publish(self.bridge.cv2_to_imgmsg(cv_image, 'mono8'))
@@ -99,18 +102,15 @@ class RRT(object):
 		"""
 		Here is where the main RRT loop happens
 		"""
+		# update robot orientation and position
 		position = pose_msg.pose.pose.position
 		orientation = pose_msg.pose.pose.orientation
-		
 		quarternion = [orientation.x, orientation.y, orientation.z, orientation.w]
 		(roll, pitch, yaw) = tf.transformations.euler_from_quaternion(quarternion)
 		trans = np.array([position.x, position.y, position.z])
 		# update robot orientation and position
 		self.yaw = yaw
 		self.current_pos = np.array([position.x, position.y])
-		# rospy.logdebug("quartenion = %s", quarternion)
-		# rospy.logdebug("self.current_pos = %s", self.current_pos)
-
 		self.tr_global_to_car = self.get_tr_matrix(quarternion, trans)
 
 		goal_x, goal_y = self.get_goalpoint(self.tr_global_to_car, plot=True)
@@ -123,23 +123,28 @@ class RRT(object):
 		for i in range(MAX_ITERATION):
 			sampled_point = self.sample()
 			nearest_node_idx, min_distance = self.nearest(tree, sampled_point)
-			# rospy.logdebug("min_distance = %s", min_distance)
 			new_node = self.steer(tree[nearest_node_idx], sampled_point, min_distance)
 			new_node.parent = nearest_node_idx;                
 			if (not self.check_collision(tree[nearest_node_idx], new_node)):
-				# rrt
+				if self.rrt_type == 1: # RRT*
+					nears = self.near(tree, new_node)
+					min_cost = self.cost(tree, tree[nearest_node_idx]) + self.line_cost(new_node, tree[nearest_node_idx])
+					for near_idx in nears:
+						if (not self.check_collision(tree[near_idx], new_node)) and (self.cost(tree, tree[near_idx]) + self.line_cost(new_node, tree[near_idx])) < min_cost:
+							new_node.parent = near_idx
+							min_cost = self.cost(tree, tree[near_idx]) + self.line_cost(new_node, tree[near_idx])
+					new_node.cost = min_cost
+					for near_idx in nears:
+						if (not self.check_collision(tree[near_idx], new_node)) and (min_cost + self.line_cost(new_node, tree[near_idx])) < self.cost(tree, tree[near_idx]):
+							tree[near_idx].parent = len(tree)
+							tree[near_idx].cost = min_cost + self.line_cost(new_node, tree[near_idx])
 				tree.append(new_node)
-				# rospy.logdebug("tree = %s", tree)
 				if (self.is_goal(new_node, goal_x, goal_y)):
 					paths = self.find_path(tree, new_node)
-					# rospy.logdebug("paths = %s", paths)
 					break
 		
 		# Pure Pursuit
 		l = len(paths)
-		# rospy.logdebug("l = %s", l)
-		# for i in range(l):
-		# 	rospy.logdebug("node = %s, %s", paths[i].x, paths[i].y)
 		if (l==0):
 			pass
 		else:
@@ -148,40 +153,35 @@ class RRT(object):
 				if (distance >= self.LOOKAHEAD_DISTANCE):
 					x_target = paths[l -1 -i].x
 					y_target = paths[l -1 -i].y
-					# rospy.logdebug("l -1 -i = %s", l -1 -i)
-					# rospy.logdebug("target = %s, %s", x_target, y_target)
-					break			
+					break
+
+			# using Pure Pursuit algorithm to navigate the car
 			siny_cosp = 2.0 * (orientation.w * orientation.z + orientation.x * orientation.y)
 			cosy_cosp = 1.0 - 2.0 * (orientation.y * orientation.y + orientation.z * orientation.z)
 			heading_current = np.arctan2(siny_cosp, cosy_cosp)
-
-			# using Pure Pursuit algorithm to navigate the car
 			real_distance = ((x_target - self.current_pos[0])**2 + (y_target - self.current_pos[1])**2)**0.5
 			lookahead_angle = np.arctan2(y_target - self.current_pos[1], x_target - self.current_pos[0])
 			del_y = real_distance * np.sin(lookahead_angle - heading_current)
 			angle = 2.00 * del_y / (real_distance **2 )
-			# rospy.logdebug("angle = %s", angle)
 			self.steer_pure_pursuit(angle)
 
-	def steer_pure_pursuit(self, angle): 	
+	def steer_pure_pursuit(self, angle):
 		if -np.pi/18 < angle < np.pi/18:
 			velocity = 0.5
 		elif -np.pi/9 < angle <= -np.pi/18 or np.pi/18 <= angle < np.pi/9:
 			velocity = 0.5
 		else:
 			velocity = 0.5
-			
+				
 		drive_msg = AckermannDriveStamped()
 		drive_msg.header.stamp = rospy.Time.now()
 		drive_msg.header.frame_id = "laser"
 		drive_msg.drive.steering_angle = angle
 		drive_msg.drive.speed = velocity
 		self.drive_pub.publish(drive_msg)
-		# rospy.logdebug("velocity = %s", drive_msg.drive.speed)		
 	
 	def get_goalpoint(self, tr_global_to_car, plot=True):
 		n = len(self.goalpoints)
-		# rospy.logdebug("self.goalpoints = %s", self.goalpoints)
 		ipt = np.zeros((4, n))
 		ipt[:2, :] = self.goalpoints.T
 		ipt[3, :] = 1
@@ -194,12 +194,9 @@ class RRT(object):
 		#select goal point
 		distance = np.sum(xy**2, axis=1)
 		idx = np.argmin(np.absolute(distance-self.l**2))
-		# rospy.logdebug("min_dist = %s", np.min(np.absolute(distance-self.l**2)))
 		goal_x, goal_y = self.goalpoints[idx]
-		# rospy.logdebug("current_pos = %s", self.current_pos)
 
 		if plot:
-		# 	rospy.logdebug("goal_xy = %s", self.goalpoints[idx])
 			plot_marker(self.marker_pub, goal_x, goal_y) #visualize goal point
 
 		return goal_x, goal_y
@@ -248,17 +245,22 @@ class RRT(object):
 				(x, y) (float float): a tuple representing the sampled point
 
 		"""
-		self.x_limit_top = 2.5
-		self.x_limit_bot = 0
-		self.y_limit_left = 0.8 #0.4
-		self.y_limit_right = -0.75 #-0.71
+		if self.rrt_type == 1: # set parameters for RRT*
+			self.x_limit_top = 2.5
+			self.x_limit_bot = 0
+			self.y_limit_left = 0.7 
+			self.y_limit_right = -0.77
+		else:
+			self.x_limit_top = 2.5
+			self.x_limit_bot = 0
+			self.y_limit_left = 0.8
+			self.y_limit_right = -0.75
 
 		x = np.random.uniform(self.x_limit_bot, self.x_limit_top)
 		y = np.random.uniform(self.y_limit_right, self.y_limit_left)
 
 		xy = self.tr_global_to_car.dot(np.array([x, y , 0, 1]))[:2]
 
-		# rospy.logdebug("xy = %s", xy)
 		return xy
 
 	def nearest(self, tree, sampled_point):
@@ -278,8 +280,6 @@ class RRT(object):
 		distance = [(node.x - sx)**2 + (node.y - sy)**2 for node in tree]
 		min_distance = (min(distance))**0.5
 		nearest_node_idx = distance.index(min(distance))
-		# rospy.logdebug("%s %s", min_distance, nearest_node_idx)
-		# rospy.logdebug("min_dist with nearest node = %s", min_distance)
 		return nearest_node_idx, min_distance
 
 	def steer(self, nearest_node, sampled_point, act_distance):
@@ -296,7 +296,6 @@ class RRT(object):
 		x = nearest_node.x + self.STEER_LENGTH / act_distance * (sampled_point[0] - nearest_node.x)
 		y = nearest_node.y + self.STEER_LENGTH / act_distance * (sampled_point[1] - nearest_node.y)
 		# plot_sample(self.sample_pub, x, y)
-		# rospy.logdebug("steer_node = %s, %s", x, y)
 		new_node = Node(x=x, y=y)
 		return new_node
 
@@ -323,8 +322,6 @@ class RRT(object):
 				if self.occupancy_grid[x][y] == 0:
 					collision = True
 					break
-		# rospy.logdebug("x = %s /n y = %s", x, y)
-		# rospy.logdebug("%s %s", np.unique(grid_x), np.unique(grid_y))
 		return collision
 
 	def is_goal(self, latest_added_node, goal_x, goal_y):
@@ -343,8 +340,6 @@ class RRT(object):
 		distance = ((latest_added_node.x - goal_x)**2 + (latest_added_node.y - goal_y)**2)**0.5
 		if distance < self.MINIMUM_GOAL_DISTANCE: 
 			close_enough = True
-			# rospy.logdebug("distance = %s", distance)
-		# rospy.logdebug("close = %s", close_enough)
 		return close_enough
 
 	def find_path(self, tree, latest_added_node):
@@ -379,7 +374,12 @@ class RRT(object):
 		Returns:
 				cost (float): the cost value of the node
 		"""
-		return 0
+		cost = 0
+		if node.cost == None:
+			cost = 0
+		else:
+			cost = node.cost
+		return cost
 
 	def line_cost(self, n1, n2):
 		"""
@@ -391,9 +391,11 @@ class RRT(object):
 		Returns:
 				cost (float): the cost value of the line
 		"""
-		return 0
+		cost = 0
+		cost = (n1.x - n2.x)**2 + (n1.y - n2.y)**2
+		return cost
 
-	def near(self, tree, node):
+	def near(self, tree, new_node):
 		"""
 		This method should return the neighborhood of nodes around the given node
 
@@ -404,6 +406,10 @@ class RRT(object):
 				neighborhood ([]): neighborhood of nodes as a list of Nodes
 		"""
 		neighborhood = []
+		min_distance = 0.6**2
+		distance = np.array([(node.x - new_node.x)**2 + (node.y - new_node.y)**2 for node in tree])
+		neighbor = np.where(distance<min_distance)
+		neighborhood = neighbor[0].tolist()
 		return neighborhood
 
 def main():
