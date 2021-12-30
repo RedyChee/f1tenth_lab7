@@ -4,6 +4,10 @@
 
 This assignment from [F1TENTH](https://f1tenth.org/learn.html) practices on motion planning.
 
+# Writtem Assignment
+<img src="f1lab7.jpeg"/>
+
+# Coding Assignment
 # How to run?
 **Before cloning this respository**, make sure you have clone the [simulator](https://github.com/f1tenth/f1tenth_simulator) respository and set up the packages properly. The setup instructions can be found [here](https://f1tenth.readthedocs.io/en/stable/going_forward/simulator/sim_install.html).
 
