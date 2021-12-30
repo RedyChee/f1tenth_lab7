@@ -7,7 +7,7 @@ This assignment from [F1TENTH](https://f1tenth.org/learn.html) practices on moti
 # How to run?
 **Before cloning this respository**, make sure you have clone the [simulator](https://github.com/f1tenth/f1tenth_simulator) respository and set up the packages properly. The setup instructions can be found [here](https://f1tenth.readthedocs.io/en/stable/going_forward/simulator/sim_install.html).
 
-> Before executing the launch file, you can choose **0 or 1 for RRT or RRT* respectively at line 43 in rrt.py.**
+Before executing the launch file, you can choose **0 or 1 for RRT or RRT* respectively at line 43 in rrt.py.**
 
 > Run the script:
 
@@ -18,6 +18,8 @@ This assignment from [F1TENTH](https://f1tenth.org/learn.html) practices on moti
 `rqt`
 
 > Press *n* key to start navigation.
+
+To visualize the sampled points, uncomment *line 298 in script.py*.
 
 # Limitations
 - Python codes are generally slower than C++ code
