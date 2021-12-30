@@ -7,6 +7,9 @@ project(f1tenth_lab7)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
+set(OpenCV_DIR "/usr/lib/x86_64-linux-gnu/cmake/opencv4")
+
+
 find_package(catkin REQUIRED COMPONENTS
   ackermann_msgs
   geometry_msgs
@@ -17,6 +20,7 @@ find_package(catkin REQUIRED COMPONENTS
   std_msgs
   tf
   visualization_msgs
+  OpenCV
 )
 
 ## System dependencies are found with CMake's conventions
